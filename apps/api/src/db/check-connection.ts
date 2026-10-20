@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "../config.js"; // ensures .env is loaded
 import { pool } from "./pool.js";
 
 async function main() {

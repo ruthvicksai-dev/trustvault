@@ -1,25 +1,33 @@
 {
-  "name": "trustvault",
+  "name": "@trustvault/api",
+  "version": "1.0.0",
   "private": true,
-  "workspaces": [
-    "apps/web",
-    "apps/api"
-  ],
+  "type": "module",
   "dependencies": {
     "@supabase/supabase-js": "^2.118.0",
+    "cors": "^2.8.5",
     "dotenv": "^18.0.8",
+    "express": "^5.1.0",
+    "helmet": "^8.1.0",
     "pg": "^8.23.1"
   },
   "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.3",
     "@types/node": "^26.6.5",
     "@types/pg": "^8.23.1",
+    "@types/supertest": "^7.2.1",
+    "supertest": "^7.1.0",
     "tsx": "^4.23.15",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vitest": "^3.2.1"
   },
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "start": "node dist/server.js",
-    "test": "vitest run"
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "db:check": "tsx src/db/check-connection.ts"
   }
 }
