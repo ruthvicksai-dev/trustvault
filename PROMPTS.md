@@ -52,6 +52,38 @@ Asked an AI coding agent to inspect the existing database migrations, verify loc
 - No files or database objects were modified during this phase.
 - Git history was preserved.
 
+## Phase 4 — Production-Oriented Authentication and Session Security
+
+**Date:** 2026-10-21
+
+**Prompt / AI assistance requested:**
+Act as a senior application security engineer and backend engineer to implement Phase 4: secure authentication, account lifecycle protections, and server-side session management. Prioritize secure defaults, defense in depth, explicit failure handling, and automated tests for realistic attack scenarios. Establish the authentication model using Express, PostgreSQL, Argon2id password hashes, and server-side sessions without conflicting with Supabase Auth. Implement registration, login with enumeration resistance, session fixation protection, multi-session revocation, account status enforcement, CSRF and CORS controls, and automated security tests.
+
+**AI contribution:**
+- Configured Argon2id password hashing using `@node-rs/argon2` with reviewed OWASP parameters (19 MiB memory, 2 passes, 1 thread) and precomputed dummy verification for constant-work timing mitigation.
+- Implemented NIST SP 800-63B aligned password validation (min 12, max 128 chars, full Unicode and space support) and a bounded concurrency semaphore (max 10 active hashes).
+- Configured server-side sessions using `express-session` and `connect-pg-simple` targeting the existing `public.sessions` table, with RFC 6265bis cookie flags (`HttpOnly`, `SameSite=Lax`, `Secure` in production, `__Host-` prefix in production), 8-hour idle expiration, and 24-hour absolute server-side expiration.
+- Implemented `POST /api/auth/register` with strict Zod validation (`.strict()`) enforcing the default least-privileged role (`viewer`), case-insensitive email normalization, and safe handling of database uniqueness constraint violations.
+- Implemented `POST /api/auth/login` with enumeration resistance (generic 401 for unknown accounts, wrong passwords, and disabled accounts), session fixation protection (`req.session.regenerate()`), and automated `checkNeedsRehash` background hash upgrades.
+- Implemented `GET /api/auth/me` with authoritative database lookups via `requireAuth` middleware to immediately block disabled or deleted accounts from stale session usage.
+- Implemented `POST /api/auth/change-password` with current password verification, new password hashing, and atomic multi-session revocation (`DELETE FROM public.sessions WHERE (sess::jsonb)->>'userId' = $1 AND sid != $currentSid`).
+- Implemented defense-in-depth CSRF protection: strict `Origin`/`Referer` allowlist check against `FRONTEND_ORIGIN` on all state-changing HTTP methods, and session-bound synchronizer token (`x-csrf-token`) via `GET /api/auth/csrf-token`.
+- Configured restrictive CORS without wildcard reflections, rate limiting on login/registration/general endpoints, Helmet security headers, 1MB JSON body limits, and fail-safe environment startup validations.
+- Documented full threat model in `THREATS.md` and complete API reference in `README.md`.
+- Authored 42 automated tests covering happy path and adversarial attacks.
+
+**Mistakes and corrections:**
+- *Zod version compatibility:* Initial install of Zod v4 used deprecated v3 error properties (`error.errors`) and strict method signatures; corrected to standard `zod@^3.24.2` to ensure consistent TypeScript typing across workspaces.
+- *CORS wildcard reflection:* Initial CORS configuration used static origin string reflection on OPTIONS preflight; updated to an explicit origin callback function so unauthorized origins receive no `Access-Control-Allow-Origin` header.
+- *Test rate limiting contention:* Initial rate limiter blocked sequential test registrations; updated `rate-limit.ts` to skip rate limits in test mode unless an explicit `x-enforce-rate-limit` header is provided.
+- *Test timeout and PostgreSQL type casting:* Vitest default 5000ms timeout was exceeded during sequential Argon2id operations over remote Supabase roundtrips, and cleanup query encountered `operator does not exist: text = uuid`; added explicit `id::text` casting in cleanup and increased test timeouts to 15–25 seconds.
+
+**Verification:**
+- Ran `npm test` across workspaces: all 42 tests passed across 5 test suites (`tests/health.test.ts`, `tests/argon2.test.ts`, `tests/csrf.test.ts`, `tests/rate-limit.test.ts`, `tests/auth.test.ts`).
+- Ran `npm run typecheck`: clean TypeScript validation with 0 errors across API and web workspaces.
+- Ran `npm run build`: verified production builds for both API and web frontends.
+- Verified that no database schema migrations were needed or applied; existing `public.users` and `public.sessions` schema completely satisfied all Phase 4 requirements.
+
 ## Documentation Rules
 
 - Record genuine AI prompts, contributions, and corrections.
