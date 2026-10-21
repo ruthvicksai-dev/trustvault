@@ -26,6 +26,32 @@
 
 **Verification:** npm dependency installation and the Supabase PostgreSQL connection test succeeded. Frontend/backend builds and automated tests are pending verification.
 
+## Phase 3 — Database Migration Baseline and Schema Integrity
+
+**Date:** 2026-10-21
+
+**Prompt / AI assistance requested:**
+
+Asked an AI coding agent to inspect the existing database migrations, verify local and remote migration status, review schema constraints and indexes, check foreign-key behavior and session-table compatibility, and identify potential integrity or security issues. The agent was instructed to avoid destructive operations, preserve applied migration history, and make no database changes without explicit approval.
+
+**AI contribution:**
+- Reviewed the users, documents, document grants, audit events, and sessions tables.
+- Evaluated constraints, indexes, foreign keys, grant revocation, and audit-history preservation.
+- Identified that `updated_at` fields have no automatic update trigger and recommended addressing this when update functionality is implemented.
+- Confirmed that no new migration was proposed for this phase.
+
+**My review and decisions:**
+- Kept the existing applied migration unchanged.
+- Decided not to make schema changes because the reported checks found no blocking issues.
+- Deferred the `updated_at` improvement until a later phase.
+- Kept authentication, authorization, and application-level audit enforcement for their respective implementation phases.
+
+**Verification:**
+- The coding agent reported that local and remote migrations were synchronized.
+- The agent reported that schema linting succeeded and the expected tables and indexes existed.
+- No files or database objects were modified during this phase.
+- Git history was preserved.
+
 ## Documentation Rules
 
 - Record genuine AI prompts, contributions, and corrections.
