@@ -196,14 +196,34 @@ All document endpoints are mounted under `/api/documents` and enforce server-sid
   ```
 
 ### `POST /api/documents`
-- **Description:** Uploads and creates a new document. The server sets `owner_id` strictly from authenticated session identity. Client attempts to supply `owner_id`, `storage_key`, or `id` are rejected. Restricted to `owner` and `admin` roles (`viewer` role receives 403).
+- **Description:** Uploads, validates, and creates a new document. Supports streaming `multipart/form-data` uploads (with bounded memory and temporary-file cleanup) as well as `application/json` payloads. Server-side validation inspects file magic bytes, enforces maximum file sizes, and generates unguessable UUID storage keys. Sets `owner_id` strictly from authenticated session identity. Restricted to `owner` and `admin` roles (`viewer` role receives HTTP 403).
 - **Authentication:** Valid session cookie required.
 - **Headers:** `x-csrf-token: <csrfToken>` required.
-- **Input:**
-  - `title`: String (1-200 chars).
-  - `category`: String (1-100 chars).
-  - `content`: Non-empty string content.
-  - `mimeType`: String (optional, default `text/plain`).
+- **Rate Limits & Concurrency:** 20 uploads / 15 min per IP; bounded concurrency semaphore (max 10 active concurrent uploads).
+- **File Validation Policies:**
+  - **Maximum File Size:** 10 MiB (`10485760` bytes) enforced during streaming and before DB persistence. Empty files (0 bytes) rejected with HTTP 400. Files exceeding limit rejected with HTTP 413 Payload Too Large.
+  - **Allowlisted MIME Types:** `application/pdf`, `image/png`, `image/jpeg`, `image/webp`, `text/plain`, `text/markdown`, `text/csv`, `application/json`, `application/vnd.openxmlformats-officedocument.wordprocessingml.document` (DOCX), `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` (XLSX).
+  - **Content Inspection:** Detects magic byte signatures (PDF `%PDF-`, PNG `\x89PNG`, JPEG `\xFF\xD8\xFF`, WebP `RIFF..WEBP`, Office `PK\x03\x04`). Rejects executable binaries (DOS MZ, ELF) and embedded active script tags (`<script>`, `<?php`). Never trusts client-declared `Content-Type` or file extensions.
+  - **`application/octet-stream` Policy:** `application/octet-stream` is treated strictly as an undeclared/generic MIME type and is NEVER permitted as the final document MIME type. Uploads declaring `application/octet-stream` are inspected for genuine magic byte signatures; if the content independently matches an allowlisted format (e.g., PDF or PNG), it is accepted under that verified format. If the content cannot be verified against the allowlist, the upload is rejected with HTTP 400 Bad Request.
+  - **JSON Document Validation:** JSON files of any size up to 10 MiB are validated for syntactic correctness. If a document is declared as `application/json` or uploaded with a `.json` extension, it must parse successfully as valid JSON; malformed JSON is rejected with HTTP 400 Bad Request.
+  - **Filename Validation & Rejection:** Filenames containing null bytes (`\0`) or invalid ASCII control characters (`[\x00-\x1f\x7f]`) are rejected immediately with HTTP 400 Bad Request. Malicious inputs are not silently normalized or stripped. Storage keys are generated exclusively on the server using cryptographically random UUIDv4 and verified extensions; client filenames are never used for storage paths or filesystem operations.
+- **Payload Options:**
+  - **Option A (`multipart/form-data`):**
+    - `title`: String (1-200 chars).
+    - `category`: String (1-100 chars).
+    - `file`: File binary stream (attached file part). Temporary files are created with owner-only mode `0600` and `wx` exclusive flags, flushed before reading, and cleaned up across all failure paths.
+  - **Option B (`application/json`):**
+    - `title`: String (1-200 chars).
+    - `category`: String (1-100 chars).
+    - `content`: Non-empty text or base64 string.
+    - `mimeType`: String (optional, default `text/plain`).
+    - `filename`: String (optional, max 255 chars, rejects null bytes/control chars).
+- **Consistency & Failure Recovery:**
+  - Storage upload occurs before database insertion.
+  - If database insertion fails after storage upload succeeds, a compensating delete immediately purges the uploaded object from storage.
+  - If compensating cleanup fails, a `storage_cleanup_failed` audit event is logged with the unguessable storage key for offline reconciliation, while preserving the original database error.
+  - A durable reconciliation function (`reconcileOrphanedObjects`) safely paginates through storage objects in configurable batches (default 100). If listing or pagination fails at any point, reconciliation aborts immediately without deleting any files.
+  - *Reconciliation Race Prevention:* To protect in-flight uploads whose database transactions have not yet committed, reconciliation enforces a 15-minute grace period (`gracePeriodMs: 900000`). Any object created within the grace window is preserved. Remaining race conditions are limited to transactions stalled longer than the grace period.
 - **Response (201 Created):**
   ```json
   {
@@ -212,8 +232,8 @@ All document endpoints are mounted under `/api/documents` and enforce server-sid
       "id": "uuid",
       "title": "Q3 Financials",
       "category": "Finance",
-      "mimeType": "text/plain",
-      "sizeBytes": 1024,
+      "mimeType": "application/pdf",
+      "sizeBytes": 1048576,
       "createdAt": "2026-10-22T...",
       "updatedAt": "2026-10-22T...",
       "isOwner": true,
@@ -225,8 +245,8 @@ All document endpoints are mounted under `/api/documents` and enforce server-sid
 ### `GET /api/documents/:id`
 - **Description:** Returns document metadata. Requires ownership or an active grant. Returns 404 for unauthorized callers.
 - **Authentication:** Valid session cookie required.
-- **Security Headers Enforced:**
-  - `Cache-Control: no-store, no-cache, must-revalidate, private` (disallows browser and intermediary caching of sensitive document metadata)
+- **Security & Cache Headers Enforced:**
+  - `Cache-Control: private, no-store, no-cache, must-revalidate` (instructs browsers and intermediary proxies not to persist confidential metadata in HTTP caches)
   - `Pragma: no-cache`
 - **Response (200 OK):**
   ```json
@@ -235,8 +255,8 @@ All document endpoints are mounted under `/api/documents` and enforce server-sid
       "id": "uuid",
       "title": "Q3 Financials",
       "category": "Finance",
-      "mimeType": "text/plain",
-      "sizeBytes": 1024,
+      "mimeType": "application/pdf",
+      "sizeBytes": 1048576,
       "createdAt": "2026-10-22T...",
       "updatedAt": "2026-10-22T...",
       "isOwner": false,
@@ -246,15 +266,17 @@ All document endpoints are mounted under `/api/documents` and enforce server-sid
   ```
 
 ### `GET /api/documents/:id/download`
-- **Description:** Streams confidential document bytes directly through an authorized endpoint. Never exposes internal storage keys.
+- **Description:** Streams authorized document bytes directly through a server-mediated streaming pipeline. Never exposes internal storage keys, credentials, or signed URLs.
 - **Authentication:** Valid session cookie required.
+- **Rate Limits:** 100 downloads / 15 min per IP.
 - **Security & Cache Headers Enforced:**
-  - `Content-Type: <mime_type>`
-  - `Content-Disposition: attachment; filename="<title>"`
+  - `Content-Type: <validated_mime_type>`
+  - `Content-Disposition: attachment; filename="<sanitized_ascii>"; filename*=UTF-8''<rfc5987_encoded>` (RFC 6266 / RFC 5987 compliant header encoding preventing HTTP response splitting and header injection)
   - `Content-Length: <size_bytes>`
-  - `Cache-Control: no-store, no-cache, must-revalidate, private` (prevents client-side disk, shared proxy, and browser cache persistence)
+  - `Cache-Control: private, no-store, no-cache, must-revalidate` (prevents client-side disk, shared proxy, and browser cache persistence)
   - `Pragma: no-cache`
   - `X-Content-Type-Options: nosniff` (mitigates MIME-sniffing execution attacks)
+  - *Client-Side Caching Guarantees & Limitations:* HTTP cache-control headers prevent intermediary proxy and browser cache persistence; however, they cannot prevent a user from explicitly saving a downloaded file to their local filesystem, taking screenshots, or retain copies that have already been transferred to an untrusted client device.
 - **Response (200 OK):** Binary stream or text content.
 
 ### `PATCH /api/documents/:id`

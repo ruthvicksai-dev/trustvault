@@ -111,6 +111,48 @@ Act as a senior application security engineer. Implement document-level authoriz
 - Ran `npm run build`: verified production builds for both API and web frontends.
 - Database integrity: verified that local migrations and remote schema remain intact with no destructive changes or rewrite of applied migration `20261020161159_create_trustvault_schema.sql`.
 
+## Phase 6 — Production-Grade Document Lifecycle, Private Storage, and Review Hardening
+
+**Date:** 2026-10-22
+
+**Prompt / AI assistance requested:**
+Act as a senior application security engineer and backend engineer working on TrustVault. Implement Phase 6: securely handle the entire document lifecycle, including upload, validation, private storage, download, metadata persistence, deletion, and storage/database failure recovery. Enforce strict upload validation, file signature inspection, allowlist, streaming to temporary storage with size limits, private Supabase storage guarantees, compensating cleanup for database failures, safe download headers (RFC 6266 / RFC 5987), rate limiting, bounded concurrency, soft deletion, and automated security tests.
+Following initial implementation, review and fix all outstanding CodeRabbit review findings (Findings A through L): safe storage pagination, reconciliation race prevention with grace periods, temporary file permissions (mode 0600, flags wx), stream flush completion awaiting, JSON detection for files larger than 8 KiB, strict application/octet-stream verification policy, filename null-byte and control character rejection, explicit Cache-Control contract, threat model polyglot calibration, separation of residual risks from release blockers, and test total reconciliation.
+
+**AI contribution:**
+- Built content validation and file signature inspector (`apps/api/src/documents/file-validator.ts`) inspecting magic bytes for PDF, PNG, JPEG, WebP, Office OpenXML, plain text, Markdown, CSV, and JSON; strictly rejecting executable formats (DOS MZ, ELF), embedded active script tags (`<script>`, `<?php`), non-printable ASCII control characters in text files, and filenames containing null bytes or control characters.
+- Calibrated JSON validation (`isCandidateJson` and `JSON.parse`) to correctly validate JSON documents of any size up to 10 MiB, including boundary tests (8191, 8192, 8193 bytes) and large payloads (50 KiB), while rejecting malformed JSON (Finding F).
+- Enforced strict generic binary policy: `application/octet-stream` is treated as undeclared and rejected unless independently verified as an allowlisted format (Finding G).
+- Enforced filename validation across schemas and multipart parser, rejecting null bytes and control characters upfront without silent normalization (Finding H).
+- Implemented streaming multipart parser (`apps/api/src/documents/multipart.ts`) using `busboy` with direct-to-disk streaming to isolated OS temporary files, owner-only permissions (`mode: 0o600`, `flags: 'wx'`), and write stream completion verification via `stream.promises.finished()` before reading or stat operations (Findings D, E).
+- Enhanced storage architecture (`apps/api/src/documents/storage.ts`) adding bucket verification (`verifyBucket()`), paginated object enumeration (`listObjects({ limit, offset })`), safe multi-page retrieval, and fail-safe orphan reconciliation (`reconcileOrphanedObjects`) that aborts immediately on pagination error with zero deletions (Finding A).
+- Implemented grace-period race mitigation (`gracePeriodMs: 15 * 60 * 1000`) in reconciliation to preserve in-flight uploads whose database transactions are still committing, pre-checking PostgreSQL prior to deletion (Finding B).
+- Compensating cleanup in `apps/api/src/documents/routes.ts`: purges uploaded storage objects if document database insert fails, preserves the original DB error, and safely logs/audits double faults (`storage_cleanup_failed`) without credential leakage (Finding C).
+- Enforced global non-caching contract via router middleware: `Cache-Control: private, no-store, no-cache, must-revalidate` and `Pragma: no-cache` on all document endpoints and error responses, alongside `X-Content-Type-Options: nosniff` and RFC 5987 attachment disposition on downloads (Finding I).
+- Calibrated threat model in `THREATS.md`, narrowing polyglot claims, accurately describing storage layer tamper boundaries, and clearly separating inherent residual risks (R-INH-01 to R-INH-03) from actionable release blockers (RB-01 to RB-04) (Findings J, K).
+- Expanded automated test suite in `apps/api/tests/lifecycle.test.ts` to 43 focused tests covering every lifecycle requirement and review fix.
+
+**Mistakes and corrections:**
+- *Asynchronous busboy stream flushing:* Initial multipart parser called `fs.promises.stat` on `bb.on("finish")` before `writeStream.pipe` completed flushing to disk; replaced with Node.js `stream.promises.finished(ws)` to guarantee stream closure and flush before reading.
+- *JSON buffer boundary truncation:* Initial JSON detection checked `textSample.trim().endsWith("}")` on an 8 KiB sample, failing for JSON files larger than 8 KiB; implemented `isCandidateJson` inspecting buffer head and tail non-whitespace characters combined with `JSON.parse` across full buffers up to 10 MiB.
+- *ASCII control character text classification:* Initial text-detection checked only for `0x00` null bytes, causing non-printable binary control bytes (`0x01..0x08`) to be misclassified as plain text; updated `detectMimeTypeFromBuffer` to treat all non-printable ASCII control bytes as binary.
+- *Test cleanup foreign key constraint:* `afterAll` test cleanup attempted to delete users while documents created by new tests were still present; updated cleanup query to cascade-delete documents and grants owned by test users.
+- *Reconciliation pagination & unknown timestamps:* Reconciled storage scan loop using `remainingBudget` to prevent overfetching beyond `maxScanned`, recorded truncation warnings on exhausted budgets, and safely preserved objects with missing, null, or invalid `createdAt` timestamps.
+
+**Verification:**
+- Ran `npm test`: all 108 automated tests passed across all 7 test suites (0 failed, 0 skipped):
+  - `tests/health.test.ts` (1 test passed)
+  - `tests/argon2.test.ts` (9 tests passed)
+  - `tests/csrf.test.ts` (9 tests passed)
+  - `tests/rate-limit.test.ts` (4 tests passed)
+  - `tests/auth.test.ts` (19 tests passed)
+  - `tests/authorization.test.ts` (23 tests passed)
+  - `tests/lifecycle.test.ts` (43 tests passed)
+- Ran `npm run typecheck`: clean TypeScript validation with 0 errors across API and web workspaces.
+- Ran `npm run build`: verified production builds for both API and web frontends.
+- Remote Supabase Storage bucket verification: confirmed `trustvault-private` is private (`public: false`).
+- Database integrity: verified that local migrations and remote schema remain intact with no destructive changes or schema drift.
+
 ## Documentation Rules
 
 - Record genuine AI prompts, contributions, and corrections.

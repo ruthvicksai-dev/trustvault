@@ -19,10 +19,35 @@ export const createDocumentSchema = z
       .string()
       .regex(/^[a-zA-Z0-9!#$&^_.+-]+\/[a-zA-Z0-9!#$&^_.+-]+$/, "Invalid MIME type format")
       .default("text/plain"),
+    filename: z
+      .string()
+      .max(255, "Filename cannot exceed 255 characters")
+      .refine(
+        (val) => !/[\x00-\x1f\x7f]/.test(val),
+        "Filename contains invalid control characters or null bytes"
+      )
+      .optional(),
   })
   .strict({ message: "Unexpected fields in document creation request" });
 
 export type CreateDocumentInput = z.infer<typeof createDocumentSchema>;
+
+export const createDocumentMultipartSchema = z
+  .object({
+    title: z
+      .string({ required_error: "Title is required" })
+      .trim()
+      .min(1, "Title must be at least 1 character long")
+      .max(200, "Title cannot exceed 200 characters"),
+    category: z
+      .string({ required_error: "Category is required" })
+      .trim()
+      .min(1, "Category must be at least 1 character long")
+      .max(100, "Category cannot exceed 100 characters"),
+  })
+  .strict({ message: "Unexpected fields in document creation request" });
+
+export type CreateDocumentMultipartInput = z.infer<typeof createDocumentMultipartSchema>;
 
 export const updateDocumentSchema = z
   .object({

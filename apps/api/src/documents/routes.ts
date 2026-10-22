@@ -13,10 +13,26 @@ import {
 } from "./storage.js";
 import {
   createDocumentSchema,
+  createDocumentMultipartSchema,
   updateDocumentSchema,
   createGrantSchema,
   updateGrantSchema,
 } from "./schemas.js";
+import {
+  validateUploadedBuffer,
+  sanitizeFilenameForHeader,
+  MIME_TO_EXTENSION,
+  type AllowedMimeType,
+} from "./file-validator.js";
+import {
+  parseMultipartUpload,
+  type MultipartParseError,
+} from "./multipart.js";
+import {
+  documentUploadRateLimiter,
+  documentDownloadRateLimiter,
+  uploadConcurrencyMiddleware,
+} from "./rate-limit.js";
 
 export const documentsRouter = Router();
 
@@ -24,6 +40,39 @@ function getParamString(val: string | string[] | undefined): string {
   if (Array.isArray(val)) return val[0] ?? "";
   return val ?? "";
 }
+
+/**
+ * Extracts content buffer from string payloads, supporting UTF-8 and base64.
+ */
+function extractContentBuffer(contentStr: string, declaredMimeType?: string): Buffer {
+  if (contentStr.startsWith("data:") && contentStr.includes(";base64,")) {
+    const base64Data = contentStr.split(";base64,")[1];
+    return Buffer.from(base64Data, "base64");
+  }
+
+  if (
+    declaredMimeType &&
+    (declaredMimeType.startsWith("image/") ||
+      declaredMimeType === "application/pdf" ||
+      declaredMimeType.startsWith("application/vnd.openxmlformats"))
+  ) {
+    if (/^[A-Za-z0-9+/]+=*$/.test(contentStr.trim())) {
+      const buf = Buffer.from(contentStr.trim(), "base64");
+      if (buf.length > 0) {
+        return buf;
+      }
+    }
+  }
+
+  return Buffer.from(contentStr, "utf8");
+}
+
+// Finding I: Enforce strict non-caching headers across all document endpoints (success and error)
+documentsRouter.use((_req: Request, res: Response, next) => {
+  res.setHeader("Cache-Control", "private, no-store, no-cache, must-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  next();
+});
 
 // Enforce authentication on all document operations
 documentsRouter.use(requireAuth);
@@ -141,101 +190,174 @@ documentsRouter.get("/", async (req: Request, res: Response) => {
 
 /**
  * POST /api/documents
- * Create document. Sets owner_id strictly from server-side authenticated identity.
+ * Create document with strict upload validation, bounded concurrency, and storage/DB consistency.
+ * Supports multipart/form-data streaming and application/json payloads.
  * Only 'owner' or 'admin' roles may create documents; 'viewer' role is forbidden.
  */
-documentsRouter.post("/", requireCsrfToken, async (req: Request, res: Response) => {
-  const user = req.user!;
+documentsRouter.post(
+  "/",
+  requireCsrfToken,
+  documentUploadRateLimiter,
+  uploadConcurrencyMiddleware,
+  async (req: Request, res: Response) => {
+    const user = req.user!;
 
-  if (user.role === "viewer") {
-    await recordAuditEvent({
-      actorId: user.id,
-      action: "create_document",
-      outcome: "denied",
-      reason: "Viewers are not permitted to create documents",
-    });
-    res.status(403).json({ error: "Forbidden: viewers cannot create documents" });
-    return;
-  }
-
-  try {
-    const input = createDocumentSchema.parse(req.body);
-    const contentBuffer = Buffer.from(input.content, "utf8");
-    const sizeBytes = contentBuffer.byteLength;
-
-    const storageKey = generateSecureStorageKey(input.mimeType);
-
-    // Upload to secure server-controlled storage
-    await getStorageDriver().upload(storageKey, contentBuffer, input.mimeType);
-
-    // Persist document record with server-enforced ownership; clean up storage object on failure
-    let result;
-    try {
-      result = await pool.query(
-        `INSERT INTO public.documents (
-          owner_id,
-          title,
-          category,
-          storage_key,
-          mime_type,
-          size_bytes
-        ) VALUES ($1, $2, $3, $4, $5, $6)
-        RETURNING id, title, category, mime_type, size_bytes, created_at, updated_at`,
-        [user.id, input.title, input.category, storageKey, input.mimeType, sizeBytes]
-      );
-    } catch (dbError) {
-      // Compensating action: clean up the uploaded storage object if database persistence fails
-      try {
-        await getStorageDriver().delete(storageKey);
-      } catch (cleanupError) {
-        console.error(
-          "Storage cleanup failed after database error:",
-          cleanupError instanceof Error ? cleanupError.message : cleanupError
-        );
-      }
-      throw dbError; // Preserve the original failure
-    }
-
-    const doc = result.rows[0];
-
-    await recordAuditEvent({
-      actorId: user.id,
-      documentId: doc.id,
-      action: "create_document",
-      outcome: "success",
-      metadata: { title: doc.title, category: doc.category, sizeBytes },
-    });
-
-    res.status(201).json({
-      message: "Document created successfully",
-      document: {
-        id: doc.id,
-        title: doc.title,
-        category: doc.category,
-        mimeType: doc.mime_type,
-        sizeBytes: Number(doc.size_bytes),
-        createdAt: doc.created_at,
-        updatedAt: doc.updated_at,
-        isOwner: true,
-        permission: "owner",
-      },
-    });
-  } catch (error: any) {
-    if (error instanceof ZodError) {
-      res.status(400).json({
-        error: "Validation error",
-        details: error.errors.map((e) => ({
-          field: e.path.join("."),
-          message: e.message,
-        })),
+    if (user.role === "viewer") {
+      await recordAuditEvent({
+        actorId: user.id,
+        action: "create_document",
+        outcome: "denied",
+        reason: "Viewers are not permitted to create documents",
       });
+      res.status(403).json({ error: "Forbidden: viewers cannot create documents" });
       return;
     }
 
-    console.error("Create document error:", error instanceof Error ? error.message : error);
-    res.status(500).json({ error: "Failed to create document" });
+    let title: string;
+    let category: string;
+    let contentBuffer: Buffer;
+    let declaredMimeType: string | undefined;
+    let filename: string | undefined;
+    let multipartCleanup: (() => Promise<void>) | null = null;
+
+    try {
+      if (req.is("multipart/form-data")) {
+        const parsed = await parseMultipartUpload(req);
+        multipartCleanup = parsed.cleanup;
+
+        const input = createDocumentMultipartSchema.parse(parsed.fields);
+        title = input.title;
+        category = input.category;
+        contentBuffer = parsed.buffer;
+        declaredMimeType = parsed.declaredMimeType;
+        filename = parsed.filename;
+      } else if (req.is("application/json")) {
+        const input = createDocumentSchema.parse(req.body);
+        title = input.title;
+        category = input.category;
+        declaredMimeType = input.mimeType;
+        filename = input.filename;
+        contentBuffer = extractContentBuffer(input.content, declaredMimeType);
+      } else {
+        res.status(415).json({
+          error: "Unsupported Media Type: expected multipart/form-data or application/json",
+        });
+        return;
+      }
+
+      // Strict file signature and content validation
+      const validation = validateUploadedBuffer({
+        buffer: contentBuffer,
+        declaredMimeType,
+        originalFilename: filename,
+      });
+
+      if (!validation.valid) {
+        if (multipartCleanup) {
+          await multipartCleanup();
+        }
+        await recordAuditEvent({
+          actorId: user.id,
+          action: "create_document",
+          outcome: "denied",
+          reason: validation.error,
+        });
+        res.status(validation.statusCode).json({ error: validation.error });
+        return;
+      }
+
+      // Server-generated unguessable UUID storage key (never client-supplied)
+      const storageKey = generateSecureStorageKey(validation.extension);
+
+      // Upload to secure server-controlled private storage
+      await getStorageDriver().upload(storageKey, contentBuffer, validation.mimeType);
+
+      // Persist document record with server-enforced ownership; clean up storage object on failure
+      let result;
+      try {
+        result = await pool.query(
+          `INSERT INTO public.documents (
+            owner_id,
+            title,
+            category,
+            storage_key,
+            mime_type,
+            size_bytes
+          ) VALUES ($1, $2, $3, $4, $5, $6)
+          RETURNING id, title, category, mime_type, size_bytes, created_at, updated_at`,
+          [user.id, title, category, storageKey, validation.mimeType, validation.sizeBytes]
+        );
+      } catch (dbError) {
+        // Compensating action: clean up the uploaded storage object if database persistence fails
+        try {
+          await getStorageDriver().delete(storageKey);
+        } catch (cleanupError) {
+          console.error(
+            "Storage cleanup failed after database error:",
+            cleanupError instanceof Error ? cleanupError.message : cleanupError
+          );
+          await recordAuditEvent({
+            actorId: user.id,
+            action: "storage_cleanup_failed",
+            outcome: "failure",
+            reason: cleanupError instanceof Error ? cleanupError.message : "Cleanup failed",
+            metadata: { storageKey },
+          });
+        }
+        throw dbError; // Preserve the original failure
+      }
+
+      const doc = result.rows[0];
+
+      await recordAuditEvent({
+        actorId: user.id,
+        documentId: doc.id,
+        action: "create_document",
+        outcome: "success",
+        metadata: { title: doc.title, category: doc.category, sizeBytes: validation.sizeBytes },
+      });
+
+      res.status(201).json({
+        message: "Document created successfully",
+        document: {
+          id: doc.id,
+          title: doc.title,
+          category: doc.category,
+          mimeType: doc.mime_type,
+          sizeBytes: Number(doc.size_bytes),
+          createdAt: doc.created_at,
+          updatedAt: doc.updated_at,
+          isOwner: true,
+          permission: "owner",
+        },
+      });
+    } catch (error: any) {
+      if (error && typeof error === "object" && "statusCode" in error) {
+        const mpErr = error as MultipartParseError;
+        res.status(mpErr.statusCode).json({ error: mpErr.message });
+        return;
+      }
+
+      if (error instanceof ZodError) {
+        res.status(400).json({
+          error: "Validation error",
+          details: error.errors.map((e) => ({
+            field: e.path.join("."),
+            message: e.message,
+          })),
+        });
+        return;
+      }
+
+      console.error("Create document error:", error instanceof Error ? error.message : error);
+      res.status(500).json({ error: "Failed to create document" });
+    } finally {
+      if (multipartCleanup) {
+        await multipartCleanup().catch(() => {});
+      }
+    }
   }
-});
+);
 
 /**
  * GET /api/documents/:id
@@ -265,7 +387,7 @@ documentsRouter.get("/:id", async (req: Request, res: Response) => {
       title: doc.title,
       category: doc.category,
       mimeType: doc.mime_type,
-      sizeBytes: doc.size_bytes,
+      sizeBytes: Number(doc.size_bytes),
       createdAt: doc.created_at,
       updatedAt: doc.updated_at,
       isOwner: auth.isOwner,
@@ -276,9 +398,9 @@ documentsRouter.get("/:id", async (req: Request, res: Response) => {
 
 /**
  * GET /api/documents/:id/download
- * Download document content. Streams authorized content from storage.
+ * Download document content. Streams authorized content from storage with safe header encoding.
  */
-documentsRouter.get("/:id/download", async (req: Request, res: Response) => {
+documentsRouter.get("/:id/download", documentDownloadRateLimiter, async (req: Request, res: Response) => {
   const user = req.user!;
   const documentId = getParamString(req.params.id);
 
@@ -305,11 +427,14 @@ documentsRouter.get("/:id/download", async (req: Request, res: Response) => {
       outcome: "success",
     });
 
+    const ext = MIME_TO_EXTENSION[doc.mime_type as AllowedMimeType] || "bin";
+    const downloadFilename = doc.title.toLowerCase().endsWith("." + ext)
+      ? doc.title
+      : `${doc.title}.${ext}`;
+    const { headerValue } = sanitizeFilenameForHeader(downloadFilename);
+
     res.setHeader("Content-Type", doc.mime_type || "application/octet-stream");
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename="${encodeURIComponent(doc.title)}"`
-    );
+    res.setHeader("Content-Disposition", headerValue);
     res.setHeader("Content-Length", file.data.byteLength);
     res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
     res.setHeader("Pragma", "no-cache");
