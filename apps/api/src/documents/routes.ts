@@ -408,6 +408,7 @@ documentsRouter.get("/:id/download", documentDownloadRateLimiter, async (req: Re
     user,
     documentId,
     action: "read_content",
+    skipAuditOnSuccess: true,
   });
 
   if (!auth.authorized || !auth.document) {
@@ -425,6 +426,7 @@ documentsRouter.get("/:id/download", documentDownloadRateLimiter, async (req: Re
       documentId: doc.id,
       action: "download_content",
       outcome: "success",
+      metadata: { mimeType: doc.mime_type, sizeBytes: Number(doc.size_bytes) },
     });
 
     const ext = MIME_TO_EXTENSION[doc.mime_type as AllowedMimeType] || "bin";
@@ -466,6 +468,7 @@ documentsRouter.patch("/:id", requireCsrfToken, async (req: Request, res: Respon
     user,
     documentId,
     action: "edit_metadata",
+    skipAuditOnSuccess: true,
   });
 
   if (!auth.authorized || !auth.document) {
@@ -559,6 +562,7 @@ documentsRouter.delete("/:id", requireCsrfToken, async (req: Request, res: Respo
     user,
     documentId,
     action: "soft_delete",
+    skipAuditOnSuccess: true,
   });
 
   if (!auth.authorized) {
@@ -610,6 +614,7 @@ documentsRouter.get("/:id/grants", async (req: Request, res: Response) => {
     user,
     documentId,
     action: "manage_grants",
+    skipAuditOnSuccess: true,
   });
 
   if (!auth.authorized) {
@@ -679,6 +684,7 @@ documentsRouter.post("/:id/grants", requireCsrfToken, async (req: Request, res: 
     user,
     documentId,
     action: "manage_grants",
+    skipAuditOnSuccess: true,
   });
 
   if (!auth.authorized) {
@@ -696,6 +702,14 @@ documentsRouter.post("/:id/grants", requireCsrfToken, async (req: Request, res: 
     );
 
     if (recipientResult.rows.length === 0) {
+      await recordAuditEvent({
+        actorId: user.id,
+        documentId,
+        action: "create_grant",
+        outcome: "denied",
+        reason: "Recipient user not found",
+        metadata: { recipientEmail: input.email },
+      });
       res.status(404).json({ error: "Recipient user not found" });
       return;
     }
@@ -704,12 +718,28 @@ documentsRouter.post("/:id/grants", requireCsrfToken, async (req: Request, res: 
 
     // Cannot grant to disabled accounts
     if (recipient.status !== "active") {
+      await recordAuditEvent({
+        actorId: user.id,
+        documentId,
+        action: "create_grant",
+        outcome: "denied",
+        reason: "Cannot grant access to a disabled account",
+        metadata: { recipientId: recipient.id, recipientEmail: recipient.email },
+      });
       res.status(400).json({ error: "Cannot grant access to a disabled account" });
       return;
     }
 
     // Cannot grant to oneself (owner already has full authority)
     if (recipient.id === user.id) {
+      await recordAuditEvent({
+        actorId: user.id,
+        documentId,
+        action: "create_grant",
+        outcome: "denied",
+        reason: "Cannot grant access to the document owner",
+        metadata: { recipientId: recipient.id },
+      });
       res.status(400).json({ error: "Cannot grant access to the document owner" });
       return;
     }
@@ -728,6 +758,14 @@ documentsRouter.post("/:id/grants", requireCsrfToken, async (req: Request, res: 
 
       if (existingActive.rows.length > 0) {
         await client.query("ROLLBACK");
+        await recordAuditEvent({
+          actorId: user.id,
+          documentId,
+          action: "create_grant",
+          outcome: "denied",
+          reason: "An active grant already exists for this user",
+          metadata: { recipientId: recipient.id, permission: input.permission },
+        });
         res.status(409).json({ error: "An active grant already exists for this user" });
         return;
       }
@@ -744,11 +782,11 @@ documentsRouter.post("/:id/grants", requireCsrfToken, async (req: Request, res: 
         [documentId, recipient.id, input.permission, user.id]
       );
 
-      await client.query("COMMIT");
-
       const grant = insertResult.rows[0];
 
       await recordAuditEvent({
+        client,
+        throwOnError: true,
         actorId: user.id,
         documentId,
         action: "create_grant",
@@ -759,6 +797,8 @@ documentsRouter.post("/:id/grants", requireCsrfToken, async (req: Request, res: 
           permission: input.permission,
         },
       });
+
+      await client.query("COMMIT");
 
       res.status(201).json({
         message: "Access granted successfully",
@@ -778,6 +818,14 @@ documentsRouter.post("/:id/grants", requireCsrfToken, async (req: Request, res: 
 
       // Unique constraint violation on document_grants_one_active_idx
       if (txError.code === "23505") {
+        await recordAuditEvent({
+          actorId: user.id,
+          documentId,
+          action: "create_grant",
+          outcome: "denied",
+          reason: "An active grant already exists for this user",
+          metadata: { recipientId: recipient.id, permission: input.permission },
+        });
         res.status(409).json({ error: "An active grant already exists for this user" });
         return;
       }
@@ -822,6 +870,7 @@ documentsRouter.patch("/:id/grants/:grantId", requireCsrfToken, async (req: Requ
     user,
     documentId,
     action: "manage_grants",
+    skipAuditOnSuccess: true,
   });
 
   if (!auth.authorized) {
@@ -841,6 +890,14 @@ documentsRouter.patch("/:id/grants/:grantId", requireCsrfToken, async (req: Requ
     );
 
     if (result.rows.length === 0) {
+      await recordAuditEvent({
+        actorId: user.id,
+        documentId,
+        action: "update_grant",
+        outcome: "denied",
+        reason: "Active grant not found or already revoked",
+        metadata: { grantId },
+      });
       res.status(404).json({ error: "Active grant not found or already revoked" });
       return;
     }
@@ -904,6 +961,7 @@ documentsRouter.delete("/:id/grants/:grantId", requireCsrfToken, async (req: Req
     user,
     documentId,
     action: "manage_grants",
+    skipAuditOnSuccess: true,
   });
 
   if (!auth.authorized) {
@@ -921,6 +979,14 @@ documentsRouter.delete("/:id/grants/:grantId", requireCsrfToken, async (req: Req
     );
 
     if (result.rows.length === 0) {
+      await recordAuditEvent({
+        actorId: user.id,
+        documentId,
+        action: "revoke_grant",
+        outcome: "denied",
+        reason: "Active grant not found or already revoked",
+        metadata: { grantId },
+      });
       res.status(404).json({ error: "Active grant not found or already revoked" });
       return;
     }
@@ -939,5 +1005,99 @@ documentsRouter.delete("/:id/grants/:grantId", requireCsrfToken, async (req: Req
   } catch (error) {
     console.error("Revoke grant error:", error instanceof Error ? error.message : error);
     res.status(500).json({ error: "Failed to revoke grant" });
+  }
+});
+
+/**
+ * GET /api/documents/:id/audit
+ * Retrieve audit trail for a specific document.
+ * Restricted strictly to the document owner.
+ * Grantees receive 403 Forbidden; non-owners/unauthorized receive 404 (anti-enumeration).
+ */
+documentsRouter.get("/:id/audit", async (req: Request, res: Response) => {
+  const user = req.user!;
+  const documentId = getParamString(req.params.id);
+
+  const auth = await authorizeDocumentAccess({
+    user,
+    documentId,
+    action: "read_metadata",
+    skipAuditOnSuccess: true,
+  });
+
+  if (!auth.authorized || !auth.document) {
+    res.status(auth.statusCode).json({ error: auth.reason });
+    return;
+  }
+
+  // Restrict strictly to document owner
+  if (!auth.isOwner) {
+    await recordAuditEvent({
+      actorId: user.id,
+      documentId,
+      action: "read_audit_trail",
+      outcome: "denied",
+      reason: "Only the document owner may view its audit trail",
+    });
+    res.status(403).json({ error: "Forbidden: only the document owner may view audit records" });
+    return;
+  }
+
+  const { limit = "50", offset = "0" } = req.query;
+  const parsedLimit = Math.min(Math.max(1, parseInt(String(limit), 10) || 50), 100);
+  const parsedOffset = Math.max(0, parseInt(String(offset), 10) || 0);
+
+  try {
+    const countRes = await pool.query(
+      "SELECT COUNT(*)::int AS total FROM public.audit_events WHERE document_id = $1",
+      [documentId]
+    );
+    const total = countRes.rows[0]?.total || 0;
+
+    const eventsRes = await pool.query(
+      `SELECT
+        id::text,
+        actor_id AS "actorId",
+        document_id AS "documentId",
+        action,
+        outcome,
+        reason,
+        metadata,
+        occurred_at AS "occurredAt"
+       FROM public.audit_events
+       WHERE document_id = $1
+       ORDER BY occurred_at DESC
+       LIMIT $2 OFFSET $3`,
+      [documentId, parsedLimit, parsedOffset]
+    );
+
+    await recordAuditEvent({
+      actorId: user.id,
+      documentId,
+      action: "read_audit_trail",
+      outcome: "success",
+      metadata: { count: eventsRes.rows.length, scope: "document" },
+    });
+
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
+    res.setHeader("Pragma", "no-cache");
+    res.json({
+      events: eventsRes.rows,
+      pagination: {
+        total,
+        limit: parsedLimit,
+        offset: parsedOffset,
+      },
+    });
+  } catch (error) {
+    console.error("Read document audit error:", error instanceof Error ? error.message : error);
+    res.status(500).json({ error: "Failed to retrieve audit trail" });
+  }
+});
+
+// Explicitly reject modification or deletion of document audit trails
+documentsRouter.all("/:id/audit", (req: Request, res: Response) => {
+  if (req.method !== "GET") {
+    res.status(405).json({ error: "Method Not Allowed: audit events are append-only" });
   }
 });

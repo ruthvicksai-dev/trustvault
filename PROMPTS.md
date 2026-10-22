@@ -153,6 +153,44 @@ Following initial implementation, review and fix all outstanding CodeRabbit revi
 - Remote Supabase Storage bucket verification: confirmed `trustvault-private` is private (`public: false`).
 - Database integrity: verified that local migrations and remote schema remain intact with no destructive changes or schema drift.
 
+## Phase 7: Audit Trail & Tamper Resistance
+
+**Prompt:**
+Implement Phase 7 of TrustVault: ensure the audit trail reliably records security-relevant events, eliminates duplicate events, prevents unauthorized access or mutation, sanitizes and redacts secrets via an allowlist, handles transactional audit failures safely, adds automated tests, and updates documentation.
+
+**AI contribution:**
+- Enhanced core audit service (`apps/api/src/audit/service.ts`) with strict allowlist metadata sanitization (`ALLOWED_METADATA_KEYS`), UUID format validation for `actorId` and `documentId`, bounded reason strings (max 500 chars), action naming regex (`/^[a-z][a-z0-9_]{1,64}$/`), and support for transactional database clients (`client?: Pick<typeof pool, "query">`) and `throwOnError: boolean`.
+- Deduplicated audit event generation across document operations (`apps/api/src/documents/authorization.ts` and `apps/api/src/documents/routes.ts`) by introducing `skipAuditOnSuccess: true` in authorization checks for mutating endpoints, ensuring single, accurate events (`update_document`, `delete_document`, `create_grant`, `download_content`) are emitted on final operation success while security denials still record immediately.
+- Implemented transactional audit persistence for PostgreSQL mutations (e.g. grant creation in `POST /api/documents/:id/grants`), atomically binding business data changes with audit trail recording within the same database transaction.
+- Extended audit coverage across authentication and session lifecycles (`apps/api/src/auth/routes.ts` and `apps/api/src/auth/middleware.ts`): recording `auth_register` (success and anti-enumeration duplicate email denials), `auth_login` (success and safe invalid credentials denials), `auth_logout`, `auth_change_password`, and session invalidation/expiry events.
+- Created document audit endpoint (`GET /api/documents/:id/audit`) restricted strictly to document owners with non-caching headers, returning HTTP 403 Forbidden to grantees and uniform HTTP 404 to non-owners.
+- Implemented system audit oversight router (`GET /api/audit` in `apps/api/src/audit/routes.ts`) restricted strictly to the `admin` role, supporting filtering by action, outcome, actorId, and documentId, while preserving confidentiality by not exposing document bodies or bypassing document-level access grants.
+- Enforced route-level append-only protection on audit endpoints: explicit HTTP 405 Method Not Allowed rejection on `POST`, `PUT`, `PATCH`, and `DELETE` requests to `/api/audit` and `/api/documents/:id/audit`.
+- Added a comprehensive integration test suite (`apps/api/tests/audit.test.ts`) covering all 10 Phase 7 security requirements: single event deduplication, denial anti-enumeration, cross-user privacy, grant attribution, failure safety, secret redaction, access control scopes, append-only route rejections, transactional failure rollback, and auth lifecycle events.
+- Updated `THREATS.md` with the Phase 7 Audit Trail Threat Matrix (T-AUD-01 to T-AUD-06) and detailed the critical distinction between application-level append-only constraints and cryptographic tamper resistance (R-INH-04).
+- Updated `README.md` with the Audit API Reference documentation and security control summaries.
+
+**Mistakes and corrections:**
+- *Wildcard route syntax in Express 5 / path-to-regexp:* Initial 405 route in `auditRouter` used `auditRouter.all("*", ...)`, triggering `TypeError: Missing parameter name at index 1: *` in path-to-regexp; corrected to explicit `auditRouter.all("/", ...)` and fallback middleware `auditRouter.use(...)`.
+- *CSRF token invalidation on session regeneration in tests:* Test session helper initially requested `/api/auth/csrf-token` before login; `req.session.regenerate()` on login invalidated the CSRF token and caused subsequent requests to return HTTP 403; corrected helper to authenticate first and then retrieve session-bound CSRF token.
+- *Metadata allowlist assertions:* Test initially expected non-allowlisted sensitive fields (`password`, `secretToken`) to be masked as `"[REDACTED]"`; updated assertions to verify they are completely omitted (`undefined`) by the strict allowlist.
+- *Multipart form handling for malicious executable uploads:* Test initially sent base64 JSON payload with `application/octet-stream` which fell back to utf-8 text; updated test to submit multipart file attachment with `.attach()` to properly trigger executable binary detection and 400 rejection.
+
+**Verification:**
+- Ran `npm test`: all 126 automated tests passed across all 8 test suites (0 failed, 0 skipped):
+  - `tests/health.test.ts` (2 tests passed)
+  - `tests/argon2.test.ts` (10 tests passed)
+  - `tests/csrf.test.ts` (8 tests passed)
+  - `tests/rate-limit.test.ts` (2 tests passed)
+  - `tests/auth.test.ts` (20 tests passed)
+  - `tests/authorization.test.ts` (23 tests passed)
+  - `tests/lifecycle.test.ts` (47 tests passed)
+  - `tests/audit.test.ts` (14 tests passed)
+- Ran `npm run typecheck`: clean TypeScript validation with 0 errors across API and web workspaces.
+- Ran `npm run build`: verified production builds for both API and web frontends.
+- Ran `git diff --check`: confirmed clean diff with zero whitespace or line-break issues.
+- Database integrity: verified that local migrations and remote schema remain intact with no destructive changes or schema drift.
+
 ## Documentation Rules
 
 - Record genuine AI prompts, contributions, and corrections.

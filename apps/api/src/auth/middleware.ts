@@ -2,6 +2,7 @@ import type { Request, Response, NextFunction } from "express";
 import crypto from "node:crypto";
 import { pool } from "../db/pool.js";
 import { env } from "../config.js";
+import { recordAuditEvent } from "../audit/service.js";
 import type { UserRole, AuthenticatedUser } from "./types.js";
 
 // Absolute session lifetime: 24 hours regardless of activity
@@ -105,7 +106,16 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
 
   // Enforce absolute session timeout
   if (req.session.createdAt && Date.now() - req.session.createdAt > ABSOLUTE_SESSION_TIMEOUT_MS) {
+    const expiredUserId = req.session.userId;
     req.session.destroy(() => {});
+    if (expiredUserId) {
+      await recordAuditEvent({
+        actorId: expiredUserId,
+        action: "auth_session_expired",
+        outcome: "denied",
+        reason: "Session expired",
+      });
+    }
     res.status(401).json({ error: "Session expired" });
     return;
   }
@@ -129,6 +139,12 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     // Reject disabled accounts immediately
     if (dbUser.status !== "active") {
       req.session.destroy(() => {});
+      await recordAuditEvent({
+        actorId: dbUser.id,
+        action: "auth_session_rejected",
+        outcome: "denied",
+        reason: "Account is disabled",
+      });
       res.status(403).json({ error: "Account is disabled" });
       return;
     }
@@ -139,6 +155,12 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
       // Allow 1000ms clock skew buffer
       if (dbUpdatedMs - req.session.passwordUpdatedAt > 1000) {
         req.session.destroy(() => {});
+        await recordAuditEvent({
+          actorId: dbUser.id,
+          action: "auth_session_invalidated",
+          outcome: "denied",
+          reason: "Session invalidated due to password change",
+        });
         res.status(401).json({ error: "Session invalidated due to password change" });
         return;
       }

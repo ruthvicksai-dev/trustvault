@@ -71,8 +71,9 @@ export async function authorizeDocumentAccess(params: {
   documentId: string;
   action: DocumentAction;
   dbPool?: Pick<typeof pool, "query">;
+  skipAuditOnSuccess?: boolean;
 }): Promise<AuthorizationResult> {
-  const { user, documentId, action, dbPool = pool } = params;
+  const { user, documentId, action, dbPool = pool, skipAuditOnSuccess = false } = params;
 
   // Fail closed on invalid UUID input
   if (!isValidUuid(documentId)) {
@@ -178,13 +179,15 @@ export async function authorizeDocumentAccess(params: {
     // 1. Owner evaluation
     if (isOwner) {
       // Owner has full authority on active document
-      await recordAuditEvent({
-        actorId: user.id,
-        documentId,
-        action,
-        outcome: "success",
-        metadata: { role: "owner" },
-      });
+      if (!skipAuditOnSuccess) {
+        await recordAuditEvent({
+          actorId: user.id,
+          documentId,
+          action,
+          outcome: "success",
+          metadata: { role: "owner" },
+        });
+      }
       return {
         authorized: true,
         statusCode: 200,
@@ -198,13 +201,15 @@ export async function authorizeDocumentAccess(params: {
     if (activeGrant) {
       // User has an active grant
       if (action === "read_metadata" || action === "read_content") {
-        await recordAuditEvent({
-          actorId: user.id,
-          documentId,
-          action,
-          outcome: "success",
-          metadata: { grant: activeGrant },
-        });
+        if (!skipAuditOnSuccess) {
+          await recordAuditEvent({
+            actorId: user.id,
+            documentId,
+            action,
+            outcome: "success",
+            metadata: { grant: activeGrant },
+          });
+        }
         return {
           authorized: true,
           statusCode: 200,
@@ -216,13 +221,15 @@ export async function authorizeDocumentAccess(params: {
 
       if (action === "edit_metadata") {
         if (activeGrant === "edit") {
-          await recordAuditEvent({
-            actorId: user.id,
-            documentId,
-            action,
-            outcome: "success",
-            metadata: { grant: "edit" },
-          });
+          if (!skipAuditOnSuccess) {
+            await recordAuditEvent({
+              actorId: user.id,
+              documentId,
+              action,
+              outcome: "success",
+              metadata: { grant: "edit" },
+            });
+          }
           return {
             authorized: true,
             statusCode: 200,

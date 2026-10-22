@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from "express";
 import { ZodError } from "zod";
 import { pool } from "../db/pool.js";
 import { env } from "../config.js";
+import { recordAuditEvent } from "../audit/service.js";
 import {
   hashPassword,
   verifyPassword,
@@ -44,8 +45,10 @@ authRouter.get("/csrf-token", (req: Request, res: Response) => {
  * Role is strictly assigned to 'viewer'. No privileged role self-assignment permitted.
  */
 authRouter.post("/register", registerRateLimiter, async (req: Request, res: Response) => {
+  let attemptedEmail: string | undefined;
   try {
     const input = registerSchema.parse(req.body);
+    attemptedEmail = input.email;
     const passwordHash = await hashPassword(input.password);
 
     const result = await pool.query(
@@ -56,6 +59,13 @@ authRouter.post("/register", registerRateLimiter, async (req: Request, res: Resp
     );
 
     const user = result.rows[0];
+
+    await recordAuditEvent({
+      actorId: user.id,
+      action: "auth_register",
+      outcome: "success",
+      metadata: { email: user.email, role: user.role },
+    });
 
     res.status(201).json({
       message: "Registration successful. Please log in.",
@@ -81,6 +91,12 @@ authRouter.post("/register", registerRateLimiter, async (req: Request, res: Resp
 
     // PostgreSQL unique constraint violation (users_email_lower_unique)
     if (error.code === "23505") {
+      await recordAuditEvent({
+        action: "auth_register",
+        outcome: "denied",
+        reason: "An account with this email address already exists",
+        metadata: attemptedEmail ? { emailAttempted: attemptedEmail } : undefined,
+      });
       res.status(409).json({ error: "An account with this email address already exists" });
       return;
     }
@@ -115,14 +131,40 @@ authRouter.post("/login", loginRateLimiter, async (req: Request, res: Response) 
 
     // If user does not exist or is disabled:
     // Execute dummy verification to normalize timing differences and return generic 401
-    if (!user || user.status !== "active") {
+    if (!user) {
       await verifyPassword(DUMMY_HASH, input.password);
+      await recordAuditEvent({
+        action: "auth_login",
+        outcome: "denied",
+        reason: "Invalid email or password",
+        metadata: { emailAttempted: input.email },
+      });
+      res.status(401).json({ error: "Invalid email or password" });
+      return;
+    }
+
+    if (user.status !== "active") {
+      await verifyPassword(DUMMY_HASH, input.password);
+      await recordAuditEvent({
+        actorId: user.id,
+        action: "auth_login",
+        outcome: "denied",
+        reason: "Account is disabled",
+        metadata: { email: user.email },
+      });
       res.status(401).json({ error: "Invalid email or password" });
       return;
     }
 
     const isValid = await verifyPassword(user.password_hash, input.password);
     if (!isValid) {
+      await recordAuditEvent({
+        actorId: user.id,
+        action: "auth_login",
+        outcome: "denied",
+        reason: "Invalid email or password",
+        metadata: { emailAttempted: input.email },
+      });
       res.status(401).json({ error: "Invalid email or password" });
       return;
     }
@@ -153,12 +195,19 @@ authRouter.post("/login", loginRateLimiter, async (req: Request, res: Response) 
       getOrCreateCsrfToken(req);
 
       // Persist session before responding to client
-      req.session.save((saveErr) => {
+      req.session.save(async (saveErr) => {
         if (saveErr) {
           console.error("Session store persistence error:", saveErr);
           res.status(500).json({ error: "Failed to establish authenticated session" });
           return;
         }
+
+        await recordAuditEvent({
+          actorId: user.id,
+          action: "auth_login",
+          outcome: "success",
+          metadata: { email: user.email, role: user.role },
+        });
 
         res.json({
           user: {
@@ -199,12 +248,21 @@ authRouter.post("/login", loginRateLimiter, async (req: Request, res: Response) 
 authRouter.post("/logout", requireAuth, (req: Request, res: Response) => {
   const isProd = env.NODE_ENV === "production";
   const cookieName = isProd ? "__Host-trustvault.sid" : "trustvault.sid";
+  const userId = req.user?.id;
 
-  req.session.destroy((err) => {
+  req.session.destroy(async (err) => {
     if (err) {
       console.error("Session destruction error:", err);
       res.status(500).json({ error: "Failed to terminate session" });
       return;
+    }
+
+    if (userId) {
+      await recordAuditEvent({
+        actorId: userId,
+        action: "auth_logout",
+        outcome: "success",
+      });
     }
 
     res.clearCookie(cookieName, {
@@ -249,6 +307,12 @@ authRouter.post("/change-password", requireAuth, requireCsrfToken, async (req: R
 
     const isCurrentValid = await verifyPassword(userResult.rows[0].password_hash, input.currentPassword);
     if (!isCurrentValid) {
+      await recordAuditEvent({
+        actorId: userId,
+        action: "auth_change_password",
+        outcome: "denied",
+        reason: "Current password is incorrect",
+      });
       res.status(400).json({ error: "Current password is incorrect" });
       return;
     }
@@ -276,10 +340,18 @@ authRouter.post("/change-password", requireAuth, requireCsrfToken, async (req: R
 
     // Update current session's password timestamp
     req.session.passwordUpdatedAt = new Date(newUpdatedAt).getTime();
-    req.session.save((saveErr) => {
+    req.session.save(async (saveErr) => {
       if (saveErr) {
         console.error("Session update error after password change:", saveErr);
       }
+
+      await recordAuditEvent({
+        actorId: userId,
+        action: "auth_change_password",
+        outcome: "success",
+        metadata: { sessionsRevoked: true },
+      });
+
       res.json({ message: "Password changed successfully" });
     });
   } catch (error: any) {

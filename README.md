@@ -362,6 +362,60 @@ All document endpoints are mounted under `/api/documents` and enforce server-sid
 
 ---
 
+## Audit API Reference
+
+All audit endpoints enforce `Cache-Control: private, no-store, no-cache, must-revalidate` and `Pragma: no-cache`. They are strictly read-only; state-modifying requests (`POST`, `PUT`, `PATCH`, `DELETE`) are rejected with HTTP 405 Method Not Allowed.
+
+### `GET /api/documents/:id/audit`
+- **Description:** Retrieves the chronological audit trail for a specific document.
+- **Authentication:** Valid session cookie required.
+- **Authorization:** Restricted strictly to the document **owner**. Outcomes are distinguished as follows:
+  - Document **owners** receive HTTP 200 OK with the document's audit history.
+  - Active **grantees** (with read or edit permissions) receive HTTP 403 Forbidden.
+  - Users with neither ownership nor an active grant (and requests for nonexistent or soft-deleted documents) receive uniform HTTP 404 Not Found anti-enumeration responses.
+- **Query Parameters:**
+  - `limit`: Number of events to return (default 50, max 100).
+  - `offset`: Pagination offset (default 0).
+- **Response (200 OK):**
+  ```json
+  {
+    "events": [
+      {
+        "id": "uuid",
+        "document_id": "uuid",
+        "actor_id": "uuid",
+        "action": "download_content",
+        "outcome": "success",
+        "reason": null,
+        "metadata": { "mimeType": "application/pdf", "sizeBytes": 1024 },
+        "occurred_at": "2026-10-22T..."
+      }
+    ],
+    "pagination": { "total": 1, "limit": 50, "offset": 0 }
+  }
+  ```
+
+### `GET /api/audit`
+- **Description:** Administrative oversight endpoint for system-wide security and audit events.
+- **Authentication:** Valid session cookie required.
+- **Authorization:** Restricted strictly to accounts with the **`admin`** role. Ordinary users (`owner`, `viewer`) receive HTTP 403 Forbidden. Does not disclose confidential document bodies or bypass document access grants.
+- **Query Parameters:**
+  - `action`: Filter by action name (e.g. `auth_login`, `create_grant`).
+  - `outcome`: Filter by outcome (`success`, `denied`, `failure`).
+  - `actorId`: Filter by actor UUID.
+  - `documentId`: Filter by document UUID.
+  - `limit`: Default 50, max 100.
+  - `offset`: Default 0.
+- **Response (200 OK):**
+  ```json
+  {
+    "events": [ ... ],
+    "pagination": { "total": 42, "limit": 50, "offset": 0 }
+  }
+  ```
+
+---
+
 ## Security Controls Summary
 
 - **Password Hashing:** Argon2id with reviewed OWASP parameters (19 MiB memory, 2 passes, 1 thread). Bounded concurrency limiter (max 10 concurrent hashes).
@@ -374,7 +428,7 @@ All document endpoints are mounted under `/api/documents` and enforce server-sid
 - **Anti-Enumeration & Safe Responses:** Uniform 404 responses for inaccessible or non-existent documents prevent resource enumeration.
 - **Immediate Revocation:** Authorization decisions are evaluated in real-time against PostgreSQL with no long-lived token/session grant caches.
 - **Storage Boundary:** Private Supabase Storage bucket (`trustvault-private`) with server-controlled UUID storage keys. Downloads streamed strictly through authenticated, authorized endpoints.
-- **Audit Logging:** Append-oriented logging in `public.audit_events` recording actions, outcomes, and actors without leaking document contents or secrets.
+- **Audit Logging & Tamper Resistance:** Application-enforced append-only audit trail in `public.audit_events` with actor attribution, allowlist metadata sanitization, transaction-atomic logging where feasible, anti-enumeration protections, and strict 405 Method Not Allowed route-level protection against log modification or deletion (noting that application-level controls do not restrict direct SQL access by privileged database operators).
 
 ---
 

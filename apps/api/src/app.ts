@@ -6,6 +6,7 @@ import { createSessionMiddleware } from "./auth/session.js";
 import { validateOrigin } from "./auth/middleware.js";
 import { authRouter } from "./auth/routes.js";
 import { documentsRouter } from "./documents/routes.js";
+import { auditRouter } from "./audit/routes.js";
 import "./auth/types.js";
 
 export const app = express();
@@ -63,6 +64,7 @@ app.get("/health", (_req, res) => {
 
 app.use("/api/auth", authRouter);
 app.use("/api/documents", documentsRouter);
+app.use("/api/audit", auditRouter);
 
 /* ── Fallback & error handling ───────────────────────────────────────────── */
 
