@@ -20,25 +20,45 @@ This document outlines the security architecture, threat model, implemented cont
 
 ---
 
-## 2. Residual Risks & Incomplete Features (Release Blockers)
+## 2. Document Authorization & Access Control Threat Matrix (Phase 5)
 
-The following controls are planned but not yet implemented in Phase 4. They constitute **residual risks** and must be resolved before general production release:
+| Threat ID | Threat Category | Threat Description | Implemented Mitigation | Verification Status |
+|:---|:---|:---|:---|:---|
+| **T-DOC-01** | **Insecure Direct Object References (IDOR)** | Attacker guesses or modifies document UUIDs or grant IDs to read metadata, download contents, or modify records belonging to other users. | - Centralized authorization engine (`authorizeDocumentAccess`) validates ownership or active grant via parameterized SQL on every request.<br>- Anti-enumeration safe response: Inaccessible or non-existent documents return uniform `404 Not Found` without disclosing resource existence.<br>- Download stream protected behind identical authorization checks. | ✅ Verified with automated tests in `tests/authorization.test.ts`. |
+| **T-DOC-02** | **Privilege Escalation via Grant Tampering** | Attacker self-assigns `edit` permission, grants permissions to themselves, creates documents as `viewer`, or assigns arbitrary `owner_id`. | - Strict Zod schemas reject client-supplied `owner_id`, `id`, `storage_key`, or extra fields.<br>- Document creation restricts role to `owner` or `admin` (`viewer` receives HTTP 403).<br>- Only the document owner may create, update, or revoke grants.<br>- Grantees with `read` permission cannot edit metadata or delete documents.<br>- Grantees cannot share documents or modify grants. | ✅ Verified with automated tests in `tests/authorization.test.ts`. |
+| **T-DOC-03** | **Stale / Zombie Grant Access** | Attacker retains access to document metadata or downloads after their access grant has been revoked. | - Real-time database lookup checks `revoked_at IS NULL` on every request with zero caching in sessions or long-lived tokens.<br>- Revocation sets `revoked_at = now()` atomically; subsequent requests are denied immediately. | ✅ Verified with automated tests in `tests/authorization.test.ts`. |
+| **T-DOC-04** | **Cross-Tenant Disclosure via Search & Pagination** | Attacker discovers unauthorized document titles, categories, or counts via search queries, filtering, or pagination metadata. | - SQL query predicates enforce `d.deleted_at IS NULL AND (d.owner_id = $userId OR EXISTS (SELECT 1 FROM document_grants dg WHERE dg.document_id = d.id AND dg.user_id = $userId AND dg.revoked_at IS NULL))` on both data and count queries.<br>- Caller never receives unauthorized records. | ✅ Verified with automated tests in `tests/authorization.test.ts`. |
+| **T-DOC-05** | **Storage Access Boundary Bypass** | Attacker accesses documents directly from storage using predictable object keys, or frontend leaks storage credentials. | - Supabase Storage bucket (`trustvault-private`) is strictly private.<br>- Privileged `SUPABASE_SECRET_KEY` remains exclusively on the server.<br>- Server generates cryptographically random UUID-based storage keys; client never supplies or sees storage keys.<br>- Downloads are streamed through authenticated server routes after database authorization. | ✅ Verified in `src/documents/storage.ts` and `tests/authorization.test.ts`. |
+| **T-DOC-06** | **Administrative Boundary Violation** | Administrator role automatically bypasses document privacy and accesses confidential user files without explicit authorization. | - Least privilege: Role `admin` does not confer automatic read, download, or edit rights on user documents without an explicit grant or ownership.<br>- All document routes require ownership or active grant regardless of administrative role. | ✅ Verified with automated tests in `tests/authorization.test.ts`. |
+| **T-DOC-07** | **Soft-Deletion Bypass** | Attacker accesses or restores deleted document metadata or content. | - Centralized authorization checks `deleted_at IS NULL` on all operations.<br>- Soft-deleted documents fail closed with uniform 404 responses for owners and grantees. | ✅ Verified with automated tests in `tests/authorization.test.ts`. |
+| **T-DOC-08** | **Grant Concurrency Race Conditions** | Concurrent requests create duplicate active grants or leave grant states inconsistent. | - Database transactions with row-level locks (`SELECT ... FOR UPDATE`) check for active grants before insertion.<br>- Partial unique index `document_grants_one_active_idx` enforces single active grant at database level; conflicts return HTTP 409 Conflict. | ✅ Verified with automated tests in `tests/authorization.test.ts`. |
 
-1. **Multi-Factor Authentication (MFA / TOTP / WebAuthn):**
+---
+
+## 3. Residual Risks & Incomplete Features (Release Blockers)
+
+The following controls are planned but not yet implemented. They constitute **residual risks** and must be resolved before general production release:
+
+1. **Client-Side Cache & Local Document Copy Persistence (Limits of Revocation):**
+   - *Status:* Inherent to digital document distribution.
+   - *Risk:* Once a user has legitimately downloaded or viewed document content, server-side grant revocation cannot retroactively delete local files, cached browser copies, or screenshots on the client device.
+   - *Mitigation & Architecture Guidance:* Sensitive documents are streamed with `Cache-Control: no-store` and `X-Content-Type-Options: nosniff`. Client-side DRM / watermarking can be considered in a future phase if confidential compliance warrants it.
+
+2. **Multi-Factor Authentication (MFA / TOTP / WebAuthn):**
    - *Status:* Incomplete / release blocker for privileged roles.
    - *Risk:* Compromise of owner or admin passwords grants full access to documents without a second factor.
    - *Recommendation:* Implement TOTP/WebAuthn enrollment and enforcement for `admin` and `owner` roles in a future phase.
 
-2. **Distributed Rate Limiting:**
+3. **Distributed Rate Limiting:**
    - *Status:* Single-instance in-memory rate limiting.
    - *Risk:* In a multi-instance containerized environment behind a load balancer, per-IP quotas are not shared across nodes.
    - *Requirement:* Deploy Redis or use PostgreSQL-backed rate-limiting stores (`rate-limit-redis`) in production.
 
-3. **Self-Service Password Reset & Email Verification:**
+4. **Self-Service Password Reset & Email Verification:**
    - *Status:* Omitted by design until transactional email infrastructure is provisioned.
    - *Risk:* Users cannot recover forgotten passwords without administrator intervention.
-   - *Safety Decision:* Insecure placeholder recovery flows (such as logging tokens to stdout) were strictly rejected. Production deployment requires an email provider (e.g., AWS SES, SendGrid), time-limited single-use hashed tokens in a dedicated table, and rate-limited reset requests.
+   - *Safety Decision:* Insecure placeholder recovery flows were strictly rejected. Production deployment requires an email provider (e.g., AWS SES, SendGrid), time-limited single-use hashed tokens in a dedicated table, and rate-limited reset requests.
 
-4. **HTTPS Boundary & Reverse Proxy:**
+5. **HTTPS Boundary & Reverse Proxy:**
    - *Status:* External deployment requirement.
    - *Requirement:* Production deployment requires TLS termination at the ingress load balancer and strict `TRUST_PROXY` configuration matching known proxy CIDRs.

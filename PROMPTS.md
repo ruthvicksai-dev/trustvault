@@ -84,6 +84,33 @@ Act as a senior application security engineer and backend engineer to implement 
 - Ran `npm run build`: verified production builds for both API and web frontends.
 - Verified that no database schema migrations were needed or applied; existing `public.users` and `public.sessions` schema completely satisfied all Phase 4 requirements.
 
+## Phase 5 — Production-Grade Document Authorization
+
+**Date:** 2026-10-22
+
+**Prompt / AI assistance requested:**
+Act as a senior application security engineer. Implement document-level authorization for TrustVault, enforcing least-privilege access to every document and document-related operation. Inspect baseline before changes, preserve Git history, and build on Phase 4 authentication. Define a strict authorization policy based on the PostgreSQL schema (`users`, `documents`, `document_grants`, `audit_events`). Centralize authorization, enforce checks on all document operations, implement secure grant management with immediate revocation, ensure database and concurrency safety, enforce storage access boundaries with authenticated download streaming, prevent information disclosure, add automated security tests, and update documentation.
+
+**AI contribution:**
+- Built the centralized document authorization engine (`apps/api/src/documents/authorization.ts`) verifying document ownership, active grants (`read` vs `edit`), soft-deletion status, and administrator containment in single parameterized SQL queries.
+- Designed anti-enumeration defenses returning consistent `404 Not Found` responses for unauthorized, non-existent, or soft-deleted documents, preventing resource discovery and IDOR enumeration.
+- Implemented storage boundary abstraction (`apps/api/src/documents/storage.ts`) supporting the private Supabase Storage bucket (`trustvault-private`) with server-generated unguessable UUID storage keys, and an in-memory storage driver for rapid, isolated test execution.
+- Implemented document management endpoints (`GET /api/documents`, `POST /api/documents`, `GET /api/documents/:id`, `GET /api/documents/:id/download`, `PATCH /api/documents/:id`, `DELETE /api/documents/:id`).
+- Implemented secure grant management (`GET /api/documents/:id/grants`, `POST /api/documents/:id/grants`, `PATCH /api/documents/:id/grants/:grantId`, `DELETE /api/documents/:id/grants/:grantId`) with row-level transaction locking (`FOR UPDATE`), duplicate grant rejection (409 Conflict), support for re-granting after revocation while preserving historical audit rows, and immediate revocation (`revoked_at = now()`).
+- Built append-oriented audit logging service (`apps/api/src/audit/service.ts`) recording access decisions and mutations to `public.audit_events` with automatic sanitization of sensitive keywords.
+- Authored 21 comprehensive automated tests in `apps/api/tests/authorization.test.ts` covering cross-user access, admin isolation, active read/edit grant enforcement, immediate revocation, re-granting, concurrency, tampering resistance, soft deletion, and fail-closed error handling.
+
+**Mistakes and corrections:**
+- *Express 5 parameter typing:* Express 5 types `req.params.id` as `string | string[] | undefined`. Added safe `getParamString` helper to ensure strict `string` extraction across all route handlers.
+- *Vitest test timeout:* Vitest default 5000ms timeout was exceeded during sequential Argon2id operations across multiple test user creations over remote Supabase roundtrips. Updated `apps/api/vitest.config.ts` to set `testTimeout: 25000` and precomputed test password hash once in `beforeAll`.
+- *UUID validation in failure simulation:* The initial database failure simulation test used `00000000-0000-0000-0000-000000000001` which has version `0` and variant `0`, causing `isValidUuid` to reject it with 404 before database execution; updated to a valid RFC 4122 v4 UUID (`12345678-1234-4234-a234-123456789abc`) and added optional `dbPool` dependency injection to `authorizeDocumentAccess` so query failure could be tested in isolation from background session touch queries.
+
+**Verification:**
+- Ran `npm test`: all 63 automated tests passed across all 6 test suites (`tests/argon2.test.ts`, `tests/health.test.ts`, `tests/csrf.test.ts`, `tests/rate-limit.test.ts`, `tests/auth.test.ts`, `tests/authorization.test.ts`).
+- Ran `npm run typecheck`: clean TypeScript validation with 0 errors across API and web workspaces.
+- Ran `npm run build`: verified production builds for both API and web frontends.
+- Database integrity: verified that local migrations and remote schema remain intact with no destructive changes or rewrite of applied migration `20261020161159_create_trustvault_schema.sql`.
+
 ## Documentation Rules
 
 - Record genuine AI prompts, contributions, and corrections.

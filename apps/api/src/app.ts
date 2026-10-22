@@ -5,6 +5,7 @@ import { env } from "./config.js";
 import { createSessionMiddleware } from "./auth/session.js";
 import { validateOrigin } from "./auth/middleware.js";
 import { authRouter } from "./auth/routes.js";
+import { documentsRouter } from "./documents/routes.js";
 import "./auth/types.js";
 
 export const app = express();
@@ -61,6 +62,7 @@ app.get("/health", (_req, res) => {
 });
 
 app.use("/api/auth", authRouter);
+app.use("/api/documents", documentsRouter);
 
 /* ── Fallback & error handling ───────────────────────────────────────────── */
 
