@@ -35,30 +35,37 @@ This document outlines the security architecture, threat model, implemented cont
 
 ---
 
-## 3. Residual Risks & Incomplete Features (Release Blockers)
+---
 
-The following controls are planned but not yet implemented. They constitute **residual risks** and must be resolved before general production release:
+## 3. Inherent Residual Risks (Architectural & Physical Limitations)
 
-1. **Client-Side Cache & Local Document Copy Persistence (Limits of Revocation):**
-   - *Status:* Inherent to digital document distribution.
-   - *Risk:* Once a user has legitimately downloaded or viewed document content, server-side grant revocation cannot retroactively delete local files, cached browser copies, or screenshots on the client device.
-   - *Mitigation & Architecture Guidance:* Sensitive documents are streamed with `Cache-Control: no-store` and `X-Content-Type-Options: nosniff`. Client-side DRM / watermarking can be considered in a future phase if confidential compliance warrants it.
+The following risks are inherent to distributed web applications and digital content delivery. They cannot be eliminated solely through application software controls and represent accepted operational boundaries:
 
-2. **Multi-Factor Authentication (MFA / TOTP / WebAuthn):**
-   - *Status:* Incomplete / release blocker for privileged roles.
-   - *Risk:* Compromise of owner or admin passwords grants full access to documents without a second factor.
-   - *Recommendation:* Implement TOTP/WebAuthn enrollment and enforcement for `admin` and `owner` roles in a future phase.
+### R-INH-01: Client-Side Document Copy & Screenshot Persistence (Limits of Revocation)
+- **Risk Characterization:** Once an authorized user downloads or displays confidential document content in their browser, subsequent server-side grant revocation cannot retroactively delete local files, client OS swap/memory, or external screen captures from the recipient's device.
+- **Enforced Mitigations:**
+  - All document metadata, content download, and grant management endpoints enforce strict non-caching headers: `Cache-Control: no-store, no-cache, must-revalidate, private` and `Pragma: no-cache`.
+  - Content streaming enforces `X-Content-Type-Options: nosniff` and content disposition attachments.
+  - Downloads are routed exclusively through authenticated, authorized server streaming endpoints; no permanent or public signed URLs are ever issued.
+- **Residual Risk Acceptance:** Accepted inherent boundary of digital file delivery. Enterprise environments requiring hardware-level content containment must deploy managed Mobile Device Management (MDM) / Data Loss Prevention (DLP) controls or evaluate client-side DRM.
 
-3. **Distributed Rate Limiting:**
-   - *Status:* Single-instance in-memory rate limiting.
-   - *Risk:* In a multi-instance containerized environment behind a load balancer, per-IP quotas are not shared across nodes.
-   - *Requirement:* Deploy Redis or use PostgreSQL-backed rate-limiting stores (`rate-limit-redis`) in production.
+### R-INH-02: Cloud Provider Storage-Level Operator Access
+- **Risk Characterization:** Personnel with administrative access to the underlying cloud infrastructure (Supabase / AWS S3) could theoretically inspect raw storage volumes or database snapshots.
+- **Enforced Mitigations:**
+  - Storage buckets are strictly private (`trustvault-private`).
+  - Storage credentials (`SUPABASE_SECRET_KEY`) reside exclusively on the backend server.
+  - Storage object keys use unguessable UUIDs rather than identifiable user or document names.
+- **Residual Risk Acceptance:** Accepted cloud provider infrastructure trust boundary. Client-side end-to-end encryption (E2EE) with client-held keys can be introduced in a future phase if zero-knowledge guarantees are required.
 
-4. **Self-Service Password Reset & Email Verification:**
-   - *Status:* Omitted by design until transactional email infrastructure is provisioned.
-   - *Risk:* Users cannot recover forgotten passwords without administrator intervention.
-   - *Safety Decision:* Insecure placeholder recovery flows were strictly rejected. Production deployment requires an email provider (e.g., AWS SES, SendGrid), time-limited single-use hashed tokens in a dedicated table, and rate-limited reset requests.
+---
 
-5. **HTTPS Boundary & Reverse Proxy:**
-   - *Status:* External deployment requirement.
-   - *Requirement:* Production deployment requires TLS termination at the ingress load balancer and strict `TRUST_PROXY` configuration matching known proxy CIDRs.
+## 4. Actionable Release Blockers & Production Deployment Prerequisites
+
+The following engineering and infrastructure controls are **mandatory release blockers**. Each must be satisfied before general production deployment:
+
+| Blocker ID | Prerequisite | Risk if Unresolved | Actionable Implementation Path & Release Condition |
+|:---|:---|:---|:---|
+| **RB-01** | **Multi-Factor Authentication (MFA / TOTP)** | Credential stuffing or password compromise grants single-factor access to owner and admin accounts. | **Condition:** Mandatory RFC 6238 TOTP enrollment and login challenge verification for all accounts with `owner` and `admin` roles before production access is granted.<br>**Path:** Integrate an RFC 6238 compliant TOTP library (e.g., `otplib` or `@levminer/speakeasy`) with AES-256-GCM encrypted TOTP secret keys stored in PostgreSQL, accompanied by single-use recovery backup codes. Require TOTP challenge validation during login before establishing fully authorized sessions for privileged roles. |
+| **RB-02** | **Distributed Rate Limiting** | Multi-instance container deployments behind a load balancer do not share in-memory quotas, weakening brute-force protections. | **Condition:** Centralized rate-limiting store shared across all API replicas.<br>**Path:** Provision managed Redis cluster and configure `rate-limit-redis` for `loginRateLimiter` and `registerRateLimiter`. |
+| **RB-03** | **Production Transactional Email & Password Reset** | Legitimate users cannot recover forgotten passwords without manual database edits. Insecure placeholder flows risk token leaks. | **Condition:** Verified email delivery service with time-limited (15-min), single-use hashed reset tokens.<br>**Path:** Provision AWS SES / SendGrid, implement `password_reset_tokens` table with SHA-256 token hashing and rate limiting. |
+| **RB-04** | **TLS Termination & Ingress Proxy Trust** | Man-in-the-middle interception of session cookies; spoofed `X-Forwarded-For` headers bypassing IP rate limits. | **Condition:** TLS 1.3 enforced at ingress with HSTS, and `TRUST_PROXY` strictly set to the known subnet CIDR of the load balancer.<br>**Path:** Configure ingress controller with TLS certificates and set `TRUST_PROXY=<ingress-cidr>` in production `.env`. |

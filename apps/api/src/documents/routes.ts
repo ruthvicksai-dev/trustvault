@@ -123,6 +123,8 @@ documentsRouter.get("/", async (req: Request, res: Response) => {
       metadata: { count: documents.length, total },
     });
 
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
+    res.setHeader("Pragma", "no-cache");
     res.json({
       documents,
       pagination: {
@@ -166,19 +168,33 @@ documentsRouter.post("/", requireCsrfToken, async (req: Request, res: Response) 
     // Upload to secure server-controlled storage
     await getStorageDriver().upload(storageKey, contentBuffer, input.mimeType);
 
-    // Persist document record with server-enforced ownership
-    const result = await pool.query(
-      `INSERT INTO public.documents (
-        owner_id,
-        title,
-        category,
-        storage_key,
-        mime_type,
-        size_bytes
-      ) VALUES ($1, $2, $3, $4, $5, $6)
-      RETURNING id, title, category, mime_type, size_bytes, created_at, updated_at`,
-      [user.id, input.title, input.category, storageKey, input.mimeType, sizeBytes]
-    );
+    // Persist document record with server-enforced ownership; clean up storage object on failure
+    let result;
+    try {
+      result = await pool.query(
+        `INSERT INTO public.documents (
+          owner_id,
+          title,
+          category,
+          storage_key,
+          mime_type,
+          size_bytes
+        ) VALUES ($1, $2, $3, $4, $5, $6)
+        RETURNING id, title, category, mime_type, size_bytes, created_at, updated_at`,
+        [user.id, input.title, input.category, storageKey, input.mimeType, sizeBytes]
+      );
+    } catch (dbError) {
+      // Compensating action: clean up the uploaded storage object if database persistence fails
+      try {
+        await getStorageDriver().delete(storageKey);
+      } catch (cleanupError) {
+        console.error(
+          "Storage cleanup failed after database error:",
+          cleanupError instanceof Error ? cleanupError.message : cleanupError
+        );
+      }
+      throw dbError; // Preserve the original failure
+    }
 
     const doc = result.rows[0];
 
@@ -241,6 +257,8 @@ documentsRouter.get("/:id", async (req: Request, res: Response) => {
   }
 
   const doc = auth.document;
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
+  res.setHeader("Pragma", "no-cache");
   res.json({
     document: {
       id: doc.id,
@@ -293,6 +311,8 @@ documentsRouter.get("/:id/download", async (req: Request, res: Response) => {
       `attachment; filename="${encodeURIComponent(doc.title)}"`
     );
     res.setHeader("Content-Length", file.data.byteLength);
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
+    res.setHeader("Pragma", "no-cache");
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.send(file.data);
   } catch (error) {
@@ -511,6 +531,8 @@ documentsRouter.get("/:id/grants", async (req: Request, res: Response) => {
       metadata: { count: grants.length },
     });
 
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
+    res.setHeader("Pragma", "no-cache");
     res.json({ grants });
   } catch (error) {
     console.error("List grants error:", error instanceof Error ? error.message : error);

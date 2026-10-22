@@ -849,5 +849,81 @@ describe("TrustVault — Phase 5: Production-Grade Document Authorization", () =
       expect(authResult.statusCode).toBe(500);
       expect(authResult.reason).toBe("Authorization service failure");
     });
+
+    it("Cleans up uploaded storage object if database insert fails on document creation", async () => {
+      const owner = await createSession("owner");
+
+      const uploadSpy = vi.spyOn(memoryStorage, "upload");
+      const deleteSpy = vi.spyOn(memoryStorage, "delete");
+
+      const originalQuery = pool.query.bind(pool);
+      const dbSpy = vi.spyOn(pool, "query").mockImplementation(async (sql: any, ...args: any[]) => {
+        const text = typeof sql === "string" ? sql : sql?.text || "";
+        if (text.includes("INSERT INTO public.documents")) {
+          throw new Error("Simulated PostgreSQL connection failure on insert");
+        }
+        return (originalQuery as any)(sql, ...args);
+      });
+
+      const res = await request(app)
+        .post("/api/documents")
+        .set("Origin", TRUSTED_ORIGIN)
+        .set("Cookie", owner.cookie)
+        .set("x-csrf-token", owner.csrfToken)
+        .send({
+          title: "Test Storage Cleanup on Failure",
+          category: "Operations",
+          content: "Orphaned storage payload test",
+        });
+
+      dbSpy.mockRestore();
+
+      // Original failure is preserved and client receives standard 500
+      expect(res.status).toBe(500);
+      expect(res.body.error).toBe("Failed to create document");
+
+      // Verify upload was performed
+      expect(uploadSpy).toHaveBeenCalled();
+      const uploadedKey = uploadSpy.mock.calls[uploadSpy.mock.calls.length - 1][0];
+
+      // Verify compensating delete cleanup was invoked with the exact uploaded key
+      expect(deleteSpy).toHaveBeenCalledWith(uploadedKey);
+
+      // Verify storage driver no longer holds the file (no orphaned objects)
+      await expect(memoryStorage.download(uploadedKey)).rejects.toThrow("File not found in storage");
+
+      uploadSpy.mockRestore();
+      deleteSpy.mockRestore();
+    });
+
+    it("Enforces no-store Cache-Control and security headers on metadata and download responses", async () => {
+      const owner = await createSession("owner");
+      const doc = await createDocument(owner, {
+        title: "Confidential Cache Test",
+        content: "Highly sensitive cache test payload",
+      });
+
+      // 1. Metadata endpoint
+      const metaRes = await request(app)
+        .get(`/api/documents/${doc.id}`)
+        .set("Cookie", owner.cookie);
+
+      expect(metaRes.status).toBe(200);
+      expect(metaRes.headers["cache-control"]).toContain("no-store");
+      expect(metaRes.headers["cache-control"]).toContain("no-cache");
+      expect(metaRes.headers["pragma"]).toBe("no-cache");
+
+      // 2. Download endpoint
+      const downloadRes = await request(app)
+        .get(`/api/documents/${doc.id}/download`)
+        .set("Cookie", owner.cookie);
+
+      expect(downloadRes.status).toBe(200);
+      expect(downloadRes.headers["cache-control"]).toContain("no-store");
+      expect(downloadRes.headers["cache-control"]).toContain("no-cache");
+      expect(downloadRes.headers["pragma"]).toBe("no-cache");
+      expect(downloadRes.headers["x-content-type-options"]).toBe("nosniff");
+      expect(downloadRes.headers["content-disposition"]).toContain("attachment; filename=");
+    });
   });
 });

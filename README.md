@@ -225,6 +225,9 @@ All document endpoints are mounted under `/api/documents` and enforce server-sid
 ### `GET /api/documents/:id`
 - **Description:** Returns document metadata. Requires ownership or an active grant. Returns 404 for unauthorized callers.
 - **Authentication:** Valid session cookie required.
+- **Security Headers Enforced:**
+  - `Cache-Control: no-store, no-cache, must-revalidate, private` (disallows browser and intermediary caching of sensitive document metadata)
+  - `Pragma: no-cache`
 - **Response (200 OK):**
   ```json
   {
@@ -243,8 +246,15 @@ All document endpoints are mounted under `/api/documents` and enforce server-sid
   ```
 
 ### `GET /api/documents/:id/download`
-- **Description:** Streams confidential document bytes directly through an authorized endpoint with security headers (`Content-Type`, `Content-Disposition`, `X-Content-Type-Options: nosniff`). Never exposes internal storage keys.
+- **Description:** Streams confidential document bytes directly through an authorized endpoint. Never exposes internal storage keys.
 - **Authentication:** Valid session cookie required.
+- **Security & Cache Headers Enforced:**
+  - `Content-Type: <mime_type>`
+  - `Content-Disposition: attachment; filename="<title>"`
+  - `Content-Length: <size_bytes>`
+  - `Cache-Control: no-store, no-cache, must-revalidate, private` (prevents client-side disk, shared proxy, and browser cache persistence)
+  - `Pragma: no-cache`
+  - `X-Content-Type-Options: nosniff` (mitigates MIME-sniffing execution attacks)
 - **Response (200 OK):** Binary stream or text content.
 
 ### `PATCH /api/documents/:id`
