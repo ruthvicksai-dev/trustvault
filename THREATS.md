@@ -71,10 +71,10 @@ The following risks are inherent to distributed web applications, cloud hosting,
 - **Residual Risk Acceptance:** Accepted cloud provider infrastructure trust boundary. Client-side end-to-end encryption (E2EE) with client-held keys can be introduced in a future phase if zero-knowledge guarantees are required.
 
 ### R-INH-03: Advanced Malware, Macro Payloads & Deep Polyglot Scanning Boundary
-- **Risk Characterization:** While TrustVault enforces strict magic byte inspection, blocks executable formats (DOS MZ, ELF), and rejects active scripts in text files, complex document formats (such as Microsoft Office DOCX/XLSX macros or advanced embedded PDF exploits) or polyglot files (e.g. valid JPEG images containing appended executable archives) could contain zero-day weaponized payloads that pass header-level magic byte checks.
+- **Risk Characterization:** While TrustVault enforces strict magic byte inspection, blocks executable formats (DOS MZ, ELF), and rejects active scripts in text files, complex document formats (such as macro-enabled Office formats like DOCM/XLSM, embedded active content in allowlisted OOXML formats, or advanced embedded PDF exploits) or polyglot files (e.g. valid JPEG images containing appended executable archives) could contain zero-day weaponized payloads that pass header-level magic byte checks.
 - **Enforced Mitigations:**
   - All downloads enforce `Content-Disposition: attachment` to prevent in-browser automatic rendering or script execution in the TrustVault domain context.
-  - `X-Content-Type-Options: nosniff` prevents browser MIME confusion attacks.
+  - `X-Content-Type-Options: nosniff` reduces MIME sniffing in browsers that honor the header.
   - Server-side file signature inspection rejects non-allowlisted and active executable signatures.
 - **Residual Risk Acceptance:** TrustVault does not currently integrate an active antivirus scanning daemon (e.g., ClamAV / AWS GuardDuty) or Content Disarm and Reconstruction (CDR) pipeline. Environments requiring enterprise-grade malware sandboxing must integrate an asynchronous ICAP/antivirus pipeline before documents are made available to grantees.
 

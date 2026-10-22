@@ -905,6 +905,95 @@ describe("TrustVault — Phase 6: Document Lifecycle, Validation, and Storage Se
       // Clean up test key
       await memoryStorage.delete(nullCreatedKey);
     });
+
+    it("Bounds rawKeys inventory scan to maxScanned and records truncation when rawKeys contains additional keys (Review Fix)", async () => {
+      const keys = ["raw-1", "raw-2", "raw-3", "raw-4", "raw-5"];
+      const legacyDriver = {
+        upload: vi.fn(),
+        download: vi.fn(),
+        delete: vi.fn(),
+        verifyBucket: vi.fn().mockResolvedValue({ verified: true, isPrivate: true }),
+        listKeys: vi.fn().mockResolvedValue(keys),
+      };
+
+      const report = await reconcileOrphanedObjects(legacyDriver as any, pool, {
+        maxScanned: 3,
+        gracePeriodMs: 0,
+      });
+
+      expect(report.scanned).toBe(3);
+      expect(report.errors.some((e) => e.includes("Scan budget exhausted (3 objects scanned)"))).toBe(true);
+    });
+
+    it("Does not record truncation when rawKeys count is within maxScanned budget", async () => {
+      const keys = ["raw-1", "raw-2"];
+      const legacyDriver = {
+        upload: vi.fn(),
+        download: vi.fn(),
+        delete: vi.fn(),
+        verifyBucket: vi.fn().mockResolvedValue({ verified: true, isPrivate: true }),
+        listKeys: vi.fn().mockResolvedValue(keys),
+      };
+
+      const report = await reconcileOrphanedObjects(legacyDriver as any, pool, {
+        maxScanned: 3,
+        gracePeriodMs: 0,
+      });
+
+      expect(report.scanned).toBe(2);
+      expect(report.errors.some((e) => e.includes("Scan budget exhausted"))).toBe(false);
+    });
+
+    it("Does not terminate on a short page and continues scanning until page is empty (Review Fix)", async () => {
+      const pages = [
+        [{ name: "short-1", createdAt: null }, { name: "short-2", createdAt: null }],
+        [{ name: "short-3", createdAt: null }, { name: "short-4", createdAt: null }],
+        [],
+      ];
+      let callCount = 0;
+      const driver = {
+        upload: vi.fn(),
+        download: vi.fn(),
+        delete: vi.fn(),
+        verifyBucket: vi.fn().mockResolvedValue({ verified: true, isPrivate: true }),
+        listObjects: vi.fn().mockImplementation(async () => {
+          return pages[callCount++] ?? [];
+        }),
+      };
+
+      const report = await reconcileOrphanedObjects(driver as any, pool, {
+        batchSize: 4,
+        maxScanned: 100,
+        gracePeriodMs: 0,
+      });
+
+      expect(report.scanned).toBe(4);
+      expect(callCount).toBe(3);
+      expect(report.errors.some((e) => e.includes("Scan budget exhausted"))).toBe(false);
+    });
+
+    it("Enforces maxScanned budget when driver returns an oversized page exceeding remaining budget (Review Fix)", async () => {
+      const oversizedPage = Array.from({ length: 10 }, (_, i) => ({
+        name: `oversized-${i}`,
+        createdAt: null,
+      }));
+      const driver = {
+        upload: vi.fn(),
+        download: vi.fn(),
+        delete: vi.fn(),
+        verifyBucket: vi.fn().mockResolvedValue({ verified: true, isPrivate: true }),
+        listObjects: vi.fn().mockResolvedValue(oversizedPage),
+      };
+
+      const report = await reconcileOrphanedObjects(driver as any, pool, {
+        batchSize: 5,
+        maxScanned: 4,
+        gracePeriodMs: 0,
+      });
+
+      expect(report.scanned).toBe(4);
+      expect(report.errors.some((e) => e.includes("Scan budget exhausted (4 objects scanned)"))).toBe(true);
+    });
   });
 
   /* ──────────────────────────────────────────────────────────────────────────

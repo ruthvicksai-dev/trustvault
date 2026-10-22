@@ -120,7 +120,7 @@ Act as a senior application security engineer and backend engineer working on Tr
 Following initial implementation, review and fix all outstanding CodeRabbit review findings (Findings A through L): safe storage pagination, reconciliation race prevention with grace periods, temporary file permissions (mode 0600, flags wx), stream flush completion awaiting, JSON detection for files larger than 8 KiB, strict application/octet-stream verification policy, filename null-byte and control character rejection, explicit Cache-Control contract, threat model polyglot calibration, separation of residual risks from release blockers, and test total reconciliation.
 
 **AI contribution:**
-- Built content validation and file signature inspector (`apps/api/src/documents/file-validator.ts`) inspecting magic bytes for PDF, PNG, JPEG, WebP, Office OpenXML, plain text, Markdown, CSV, and JSON; strictly rejecting executable formats (DOS MZ, ELF), embedded active script tags (`<script>`, `<?php`), non-printable ASCII control characters in text files, and filenames containing null bytes or control characters.
+- Built content validation and file signature inspector (`apps/api/src/documents/file-validator.ts`) verifying binary signatures for PDF, PNG, JPEG, WebP, and Office formats, while plain text, Markdown, CSV, and JSON are classified or parsed from their content; strictly rejecting executable formats (DOS MZ, ELF), embedded active script tags (`<script>`, `<?php`), non-printable ASCII control characters in text files, and filenames containing null bytes or control characters.
 - Calibrated JSON validation (`isCandidateJson` and `JSON.parse`) to correctly validate JSON documents of any size up to 10 MiB, including boundary tests (8191, 8192, 8193 bytes) and large payloads (50 KiB), while rejecting malformed JSON (Finding F).
 - Enforced strict generic binary policy: `application/octet-stream` is treated as undeclared and rejected unless independently verified as an allowlisted format (Finding G).
 - Enforced filename validation across schemas and multipart parser, rejecting null bytes and control characters upfront without silent normalization (Finding H).
@@ -137,17 +137,17 @@ Following initial implementation, review and fix all outstanding CodeRabbit revi
 - *JSON buffer boundary truncation:* Initial JSON detection checked `textSample.trim().endsWith("}")` on an 8 KiB sample, failing for JSON files larger than 8 KiB; implemented `isCandidateJson` inspecting buffer head and tail non-whitespace characters combined with `JSON.parse` across full buffers up to 10 MiB.
 - *ASCII control character text classification:* Initial text-detection checked only for `0x00` null bytes, causing non-printable binary control bytes (`0x01..0x08`) to be misclassified as plain text; updated `detectMimeTypeFromBuffer` to treat all non-printable ASCII control bytes as binary.
 - *Test cleanup foreign key constraint:* `afterAll` test cleanup attempted to delete users while documents created by new tests were still present; updated cleanup query to cascade-delete documents and grants owned by test users.
-- *Reconciliation pagination & unknown timestamps:* Reconciled storage scan loop using `remainingBudget` to prevent overfetching beyond `maxScanned`, recorded truncation warnings on exhausted budgets, and safely preserved objects with missing, null, or invalid `createdAt` timestamps.
+- *Reconciliation pagination, inventory bounds & unknown timestamps:* Reconciled storage scan loop using `remainingBudget` across both `listObjects` and `rawKeys` paths to strictly enforce `maxScanned` budgets even against oversized driver pages, allowed short pages to continue scanning until an empty page confirms listing completion, recorded truncation warnings on exhausted budgets, and safely preserved objects with missing, null, or invalid `createdAt` timestamps.
 
 **Verification:**
-- Ran `npm test`: all 108 automated tests passed across all 7 test suites (0 failed, 0 skipped):
+- Ran `npm test`: all 112 automated tests passed across all 7 test suites (0 failed, 0 skipped):
   - `tests/health.test.ts` (1 test passed)
   - `tests/argon2.test.ts` (9 tests passed)
   - `tests/csrf.test.ts` (9 tests passed)
   - `tests/rate-limit.test.ts` (4 tests passed)
   - `tests/auth.test.ts` (19 tests passed)
   - `tests/authorization.test.ts` (23 tests passed)
-  - `tests/lifecycle.test.ts` (43 tests passed)
+  - `tests/lifecycle.test.ts` (47 tests passed)
 - Ran `npm run typecheck`: clean TypeScript validation with 0 errors across API and web workspaces.
 - Ran `npm run build`: verified production builds for both API and web frontends.
 - Remote Supabase Storage bucket verification: confirmed `trustvault-private` is private (`public: false`).

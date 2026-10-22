@@ -299,29 +299,30 @@ export async function reconcileOrphanedObjects(
       let page: StorageObjectInfo[];
       if (driver.listObjects) {
         page = await driver.listObjects({ limit: requestLimit, offset });
+
+        if (page.length === 0) {
+          reachedEnd = true;
+          break;
+        }
+
+        const remaining = maxScanned - allObjects.length;
+        const itemsToAppend = page.slice(0, remaining);
+        allObjects.push(...itemsToAppend);
+
+        offset += page.length;
       } else {
         const rawKeys = await driver.listKeys!();
-        page = rawKeys.map((k) => ({ name: k, createdAt: null }));
-      }
+        const remaining = maxScanned - allObjects.length;
+        const keysToAppend = rawKeys.slice(0, remaining);
+        page = keysToAppend.map((k) => ({ name: k, createdAt: null }));
 
-      if (page.length === 0) {
-        reachedEnd = true;
-        break;
-      }
+        allObjects.push(...page);
 
-      allObjects.push(...page);
-
-      // If fewer items returned than requestLimit, we have reached the end of the listing
-      if (page.length < requestLimit) {
-        reachedEnd = true;
-        break;
-      }
-
-      offset += page.length;
-
-      // If driver only supports legacy unpaginated listKeys, stop after first fetch
-      if (!driver.listObjects) {
-        reachedEnd = true;
+        if (rawKeys.length > remaining) {
+          reachedEnd = false;
+        } else {
+          reachedEnd = true;
+        }
         break;
       }
     }
