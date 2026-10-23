@@ -1,39 +1,39 @@
-import { useEffect, useState } from "react";
-
-interface HealthResponse {
-  status: string;
-  service: string;
-  timestamp: string;
-}
+import React from "react";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { AuthProvider } from "@/context/auth-context";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { AppShell } from "@/components/layout/app-shell";
+import { LoginPage } from "@/pages/login-page";
+import { OverviewPage } from "@/pages/overview-page";
+import { DocumentsPage } from "@/pages/documents-page";
+import { SharedPage } from "@/pages/shared-page";
+import { AuditPage } from "@/pages/audit-page";
+import { AdminPage } from "@/pages/admin-page";
 
 export function App() {
-  const [health, setHealth] = useState<HealthResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetch("/api/health")
-      .then((res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return res.json() as Promise<HealthResponse>;
-      })
-      .then(setHealth)
-      .catch((err: Error) => setError(err.message));
-  }, []);
-
   return (
-    <main style={{ fontFamily: "system-ui, sans-serif", padding: "2rem" }}>
-      <h1>TrustVault</h1>
-      <p>Secure document sharing with per-document authorization.</p>
-      <section>
-        <h2>API Health</h2>
-        {error && <p style={{ color: "red" }}>Error: {error}</p>}
-        {health && (
-          <pre style={{ background: "#f4f4f4", padding: "1rem", borderRadius: "4px" }}>
-            {JSON.stringify(health, null, 2)}
-          </pre>
-        )}
-        {!health && !error && <p>Checking…</p>}
-      </section>
-    </main>
+    <TooltipProvider>
+      <AuthProvider>
+        <BrowserRouter>
+          <Routes>
+            {/* Public Auth Routes */}
+            <Route path="/login" element={<LoginPage />} />
+
+            {/* Authenticated Shell Routes */}
+            <Route path="/" element={<AppShell />}>
+              <Route index element={<Navigate to="/overview" replace />} />
+              <Route path="overview" element={<OverviewPage />} />
+              <Route path="documents" element={<DocumentsPage />} />
+              <Route path="shared" element={<SharedPage />} />
+              <Route path="audit" element={<AuditPage />} />
+              <Route path="admin" element={<AdminPage />} />
+            </Route>
+
+            {/* Catch-all redirect */}
+            <Route path="*" element={<Navigate to="/overview" replace />} />
+          </Routes>
+        </BrowserRouter>
+      </AuthProvider>
+    </TooltipProvider>
   );
 }
