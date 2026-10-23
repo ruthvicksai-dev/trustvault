@@ -7,7 +7,7 @@ import {
   MIN_PASSWORD_LENGTH,
   MAX_PASSWORD_LENGTH,
   DUMMY_HASH,
-} from "../src/auth/argon2.js";
+} from "../../src/auth/argon2.js";
 
 describe("Argon2id Password Security", () => {
   it("hashes and verifies a valid password", async () => {

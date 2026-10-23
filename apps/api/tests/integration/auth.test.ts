@@ -1,7 +1,7 @@
 import { describe, it, expect, afterAll } from "vitest";
 import request from "supertest";
-import { app } from "../src/app.js";
-import { pool } from "../src/db/pool.js";
+import { app } from "../../src/app.js";
+import { pool } from "../../src/db/pool.js";
 
 const TRUSTED_ORIGIN = "http://localhost:5173";
 

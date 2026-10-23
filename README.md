@@ -52,13 +52,49 @@ npm install
 npm run db:check --workspace=apps/api
 ```
 
-### 3. Run the Development Server
+### 3. Run the Development Servers
 
+Start the Express API server (port 4000):
 ```bash
 npm run dev:api
 ```
 
-The API will be available at `http://localhost:4000`.
+In a separate terminal, start the React + Vite web frontend (port 5173):
+```bash
+npm run dev:web
+```
+
+The web dashboard is available at `http://localhost:5173` with reverse proxying to `http://localhost:4000/api`.
+
+### 4. Build and Typecheck
+
+```bash
+# Typecheck all workspaces (API + Web)
+npm run typecheck
+
+# Production build for both API and Web
+npm run build
+```
+
+### 5. Running Automated Tests
+
+TrustVault strictly isolates tests from production and development databases:
+
+```bash
+# Run unit tests (zero database writes, in-memory storage & session store)
+npm run test:unit
+
+# Run database integration tests (requires an explicitly designated test database)
+npm run test:integration
+```
+
+#### Test Database Isolation & Fail-Closed Guard
+
+To protect development and production Supabase databases from accidental writes or test fixture accumulation:
+1. Copy `.env.test.example` to `.env.test`.
+2. Configure `TEST_DATABASE_URL` pointing to an isolated, disposable test database (e.g., `postgresql://postgres:postgres@localhost:5432/trustvault_test`).
+3. If no test database is configured, or if the configured database matches development/production or points to an unconfirmed cloud database, the fail-closed guard (`assertTestDatabase`) immediately aborts execution before any SQL query can run.
+4. Storage operations in test mode default to `InMemoryStorageDriver`, ensuring no test files are written to remote buckets.
 
 ---
 

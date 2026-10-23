@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import request from "supertest";
-import { app } from "../src/app.js";
-import { pool } from "../src/db/pool.js";
-import { hashPassword } from "../src/auth/argon2.js";
-import { setStorageDriver, InMemoryStorageDriver } from "../src/documents/storage.js";
-import { authorizeDocumentAccess } from "../src/documents/authorization.js";
+import { app } from "../../src/app.js";
+import { pool } from "../../src/db/pool.js";
+import { hashPassword } from "../../src/auth/argon2.js";
+import { setStorageDriver, InMemoryStorageDriver } from "../../src/documents/storage.js";
+import { authorizeDocumentAccess } from "../../src/documents/authorization.js";
 
 const TRUSTED_ORIGIN = "http://localhost:5173";
 

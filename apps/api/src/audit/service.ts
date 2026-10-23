@@ -58,7 +58,7 @@ const CREDENTIAL_VALUE_PATTERNS = [
   /\beyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}/,
   /(?:password|passwd|secret|access_token|refresh_token|api_key|apikey)\s*[:=]\s*\S+/i,
   /(?:connect\.sid|sessionid)\s*[:=]\s*\S+/i,
-  /^\$argon2[a-z]?\$/i,
+  /^\$argon2[a-z0-9$,=]+/i,
   /^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/,
 ];
 

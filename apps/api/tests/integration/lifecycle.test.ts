@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import request from "supertest";
-import { app } from "../src/app.js";
-import { pool } from "../src/db/pool.js";
-import { hashPassword } from "../src/auth/argon2.js";
+import { app } from "../../src/app.js";
+import { pool } from "../../src/db/pool.js";
+import { hashPassword } from "../../src/auth/argon2.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -12,8 +12,8 @@ import {
   setStorageDriver,
   InMemoryStorageDriver,
   reconcileOrphanedObjects,
-} from "../src/documents/storage.js";
-import { validateFilename, sanitizeFilenameForHeader } from "../src/documents/file-validator.js";
+} from "../../src/documents/storage.js";
+import { validateFilename, sanitizeFilenameForHeader } from "../../src/documents/file-validator.js";
 
 const TRUSTED_ORIGIN = "http://localhost:5173";
 

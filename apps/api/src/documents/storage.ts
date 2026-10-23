@@ -236,8 +236,10 @@ export class InMemoryStorageDriver implements StorageDriver {
   }
 }
 
-// Default driver uses Supabase in production and development, or can be overridden in tests
-let currentDriver: StorageDriver = new SupabaseStorageDriver();
+// Default driver: Always use InMemoryStorageDriver in test mode to guarantee zero remote storage calls
+let currentDriver: StorageDriver = env.NODE_ENV === "test"
+  ? new InMemoryStorageDriver()
+  : new SupabaseStorageDriver();
 
 export function setStorageDriver(driver: StorageDriver): void {
   currentDriver = driver;
@@ -374,6 +376,7 @@ export async function reconcileOrphanedObjects(
           action: "reconcile_orphan_deleted",
           outcome: "success",
           metadata: { storageKey: obj.name, ageMs: objectAgeMs },
+          client: dbPool,
         });
       }
     } catch (err: any) {

@@ -1,6 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import request from "supertest";
-import { app } from "../src/app.js";
+import { app } from "../../src/app.js";
+import { pool } from "../../src/db/pool.js";
 
 describe("CSRF & Browser Origin Protections", () => {
   const TRUSTED_ORIGIN = "http://localhost:5173";
@@ -38,6 +39,11 @@ describe("CSRF & Browser Origin Protections", () => {
     });
 
     it("allows state-changing requests with matching trusted Origin", async () => {
+      // Mock database lookup so unit test does not touch or require real database
+      const querySpy = vi.spyOn(pool, "query").mockImplementation(async () => {
+        return { rows: [], command: "SELECT", rowCount: 0, oid: 0, fields: [] } as any;
+      });
+
       const res = await request(app)
         .post("/api/auth/login")
         .set("Origin", TRUSTED_ORIGIN)
@@ -48,6 +54,7 @@ describe("CSRF & Browser Origin Protections", () => {
 
       // Passes origin check, fails authentication with 401
       expect(res.status).toBe(401);
+      querySpy.mockRestore();
     });
 
     it("does not mutate application state through GET endpoints", async () => {

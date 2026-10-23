@@ -8,6 +8,25 @@ const PgSession = connectPgSimple(session);
 
 export function createSessionMiddleware(pool: Pool = defaultPool) {
   const isProd = env.NODE_ENV === "production";
+  const isTest = env.NODE_ENV === "test";
+
+  // In test mode without a test database configured or when memory session store is explicitly requested:
+  // Isolate unit tests with an in-memory session store (zero database I/O).
+  if (isTest && (!env.DATABASE_URL || process.env.TEST_SESSION_STORE === "memory")) {
+    return session({
+      name: "trustvault.sid",
+      secret: env.SESSION_SECRET,
+      resave: false,
+      saveUninitialized: false,
+      cookie: {
+        httpOnly: true,
+        secure: false,
+        sameSite: "lax",
+        path: "/",
+        maxAge: 8 * 60 * 60 * 1000,
+      },
+    });
+  }
 
   // RFC 6265bis: __Host- prefix requires Secure, path=/, and NO domain attribute
   const cookieName = isProd ? "__Host-trustvault.sid" : "trustvault.sid";

@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import request from "supertest";
-import { app } from "../src/app.js";
-import { pool } from "../src/db/pool.js";
-import { hashPassword } from "../src/auth/argon2.js";
-import { ABSOLUTE_SESSION_TIMEOUT_MS } from "../src/auth/middleware.js";
-import { setStorageDriver, InMemoryStorageDriver } from "../src/documents/storage.js";
+import { app } from "../../src/app.js";
+import { pool } from "../../src/db/pool.js";
+import { hashPassword } from "../../src/auth/argon2.js";
+import { ABSOLUTE_SESSION_TIMEOUT_MS } from "../../src/auth/middleware.js";
+import { setStorageDriver, InMemoryStorageDriver } from "../../src/documents/storage.js";
 
 const TRUSTED_ORIGIN = "http://localhost:5173";
 const UNTRUSTED_ORIGIN = "https://malicious-attacker.example.com";

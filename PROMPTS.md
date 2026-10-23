@@ -234,6 +234,86 @@ Act as a Senior Application Security Engineer and Backend Test Engineer conducti
 - Ran `git diff --check`: confirmed clean diff with zero whitespace or line-break issues.
 - Database integrity: verified that local migrations and remote schema remain intact with no destructive changes or rewrite of applied migration `20261020161159_create_trustvault_schema.sql`.
 
+## Phase 9 — Build the Complete Frontend
+
+**Date:** 2026-10-23
+
+**Prompt / AI assistance requested:**
+Act as a Senior Frontend Engineer, UI/UX Designer, and Application Security Engineer. Build a polished, production-quality frontend for TrustVault using the initialized shadcn preset `b1aIuQ2XC` (Base-Luma style, stone palette, Raleway variable typography, Remix icons, Tailwind CSS v4). Integrate exclusively with existing Express/PostgreSQL/Supabase Storage backend endpoints. Do not fabricate endpoints, bypass backend authorization, or store credentials/tokens in browser storage (`localStorage`/`sessionStorage`). Implement the shared application layout, authentication pages, overview dashboard, document management (with search, category filter, multipart binary upload, authorized stream download, metadata editing, and owner deletion), document sharing & grant management (with email resolution, read/edit permissions, and revocation confirmation), document audit trail, and system audit oversight for administrators. Update endpoint map and documentation.
+
+**AI contribution:**
+- Established baseline: checked `git status`, ran baseline `npm run typecheck:web` and `npm run build:web` to verify pre-existing setup.
+- Analyzed API route mounting and proxy configuration: discovered that `apps/web/vite.config.ts` stripped the `/api` prefix (`rewrite: (path) => path.replace(/^\/api/, "")`), which broke routing because backend Express routers are explicitly mounted at `/api/auth`, `/api/documents`, and `/api/audit`. Updated `vite.config.ts` to preserve `/api` and added dedicated proxying for `/health`.
+- Added required shadcn UI components (`card`, `input`, `label`, `badge`, `dialog`, `dropdown-menu`, `avatar`, `separator`, `skeleton`, `table`, `textarea`, `select`, `tabs`, `sheet`, `tooltip`, `alert-dialog`) matching the initialized preset tokens, fonts, and theme variables in `apps/web/src/index.css`.
+- Authored comprehensive backend endpoint map artifact (`endpoint_map.md`) documenting all verified endpoints, methods, auth roles, CSRF requirements, and non-existent features (MFA, password reset, user management).
+- Implemented strongly typed API client (`apps/web/src/lib/api.ts`) with in-memory CSRF token acquisition (`GET /api/auth/csrf-token`) and auto-injection on state-changing requests, session-cookie credentials handling (`credentials: "include"`), automatic 401 unauthenticated session handling via subscriber callback, and authorized binary streaming document downloads with transient Blob URL cleanup.
+- Implemented React Context Authentication Provider (`apps/web/src/context/auth-context.tsx`) deriving identity at mount via `GET /api/auth/me`, providing login, register, logout, and automatic session revocation propagation.
+- Implemented shared responsive AppShell (`apps/web/src/components/layout/app-shell.tsx`) with fixed desktop sidebar (`sidebar.tsx`), mobile sheet drawer, Header (`header.tsx`) with page title and description, and UserNav menu (`user-nav.tsx`) with Change Password modal (`change-password-dialog.tsx`) and logout.
+- Implemented Login & Register page (`apps/web/src/pages/login-page.tsx`) with client-side required field and 12-char password validation, clear error banners, and security disclosures without non-existent MFA or reset links.
+- Implemented Overview Dashboard (`apps/web/src/pages/overview-page.tsx`) showing live metrics (accessible, owned, shared), recent document stream downloads, and quick upload modal.
+- Implemented Documents management page (`apps/web/src/pages/documents-page.tsx`) with search, category filtering, responsive cards, download streaming, title/category editing dialog (`edit-document-dialog.tsx`), owner soft-delete confirmation dialog (`delete-document-dialog.tsx`), sharing management dialog, and audit trail dialog.
+- Implemented Sharing & Permissions modal (`apps/web/src/components/sharing/share-dialog.tsx`) with recipient email validation, `read` vs `edit` grant assignment, permission toggling (`PATCH /api/documents/:id/grants/:grantId`), and atomic revocation confirmation (`DELETE /api/documents/:id/grants/:grantId`).
+- Implemented Document Audit modal (`apps/web/src/components/audit/document-audit-dialog.tsx`) and full Document Audit page (`apps/web/src/pages/audit-page.tsx`) showing append-only security logs for owned documents.
+- Implemented System Audit Oversight page (`apps/web/src/pages/admin-page.tsx`) for `admin` role accounts with filtering across action, outcome, actorId, and documentId, and fail-closed UI guards for non-admins.
+- Seeded verified demo accounts (`apps/api/src/db/seed-demo-users.ts`) for all 3 supported application roles (`admin@trustvault.local`, `owner@trustvault.local`, and `viewer@trustvault.local`) along with an initial sample document and grant.
+- Purged 372 orphaned integration test fixture records and 265 test audit events (`apps/api/src/db/clean-test-data.ts`) generated by previous test suite runs, preserving only verified user and demo accounts.
+- Updated `README.md` with verified web frontend dev (`npm run dev:web`), build (`npm run build`), and typecheck instructions.
+
+**Mistakes and corrections:**
+- *Vite Proxy Route Stripping:* Noticed `vite.config.ts` stripped `/api` while backend mounts routers at `/api/auth`, `/api/documents`, and `/api/audit`. Removed prefix rewriting so `/api/...` proxies 1:1.
+- *Missing index.css import:* `main.tsx` did not import `index.css`, which prevented Tailwind v4 `@theme` and Raleway Variable font from loading. Added `import "./index.css";` to `main.tsx`.
+- *Base UI Trigger Element Conflict on UserNav:* Identified that passing `render={<Button ... />}` with nested children into `DropdownMenuTrigger` caused a runtime DOM/hook exception when clicked in the navbar. Re-architected `UserNav` with an accessible, crash-proof menu with outside click and Escape key listeners.
+
+**Verification:**
+- Ran `npm run typecheck:web` and `npm run typecheck`: clean TypeScript validation with 0 errors across API and web workspaces.
+- Ran `npm run build:web` and `npm run build`: verified production builds for both API and web frontends with clean asset generation.
+- Verified absence of test framework in `apps/web` (reported gap).
+- Database integrity: verified that local migrations and remote schema remain intact with clean production accounts (`public.users` contains only 4 verified accounts).
+
+---
+
+## Task: Isolate Automated Tests from the Real Database
+
+**Date:** 2026-10-23
+
+**Problem:**
+TrustVault's automated backend tests were previously connecting to the primary Supabase development/production database specified in the monorepo root `.env`, causing test fixture accumulation (users, documents, grants, sessions, and audit events) across test suite runs.
+
+**Prompt / AI assistance requested:**
+Isolate automated tests from the real database. Ensure automated tests cannot accidentally write to development or production Supabase. Add a fail-closed guard refusing database integration tests if the configured database is not explicitly identified as a test database. Configure unit tests to mock database/storage dependencies and run in-memory. Ensure integration tests require a dedicated disposable test database (`TEST_DATABASE_URL`). Implement strictly scoped fixture tracking and teardown. Update documentation and `PROMPTS.md` truthfully.
+
+**AI contribution:**
+- **Identified Connection Vulnerability:** Traced test environment startup and discovered that `apps/api/src/config.ts` unconditionally loaded the root `.env` via `dotenv`, setting `env.DATABASE_URL` directly to the cloud Supabase instance during Vitest test runs.
+- **Isolated Test Environment Loading (`apps/api/src/config.ts`):** Modified environment loader so that when `NODE_ENV === "test"`, `.env.test` is loaded if present, and `env.DATABASE_URL` strictly reads `TEST_DATABASE_URL`. Prevented tests from falling back to the primary development/production `DATABASE_URL`.
+- **Engineered Fail-Closed Test Database Guard (`apps/api/src/db/guard.ts`):** Implemented `assertTestDatabase(url)` with fail-closed checks:
+  1. Refuses execution if no database URL is provided (`[FAIL-CLOSED GUARD] No test database configured...`).
+  2. Refuses execution if the test database matches the primary development/production `DATABASE_URL`.
+  3. Detects remote cloud database hostnames (`*.supabase.co`, `*.supabase.com`, `*.rds.amazonaws.com`, `*.neon.tech`, etc.) and refuses execution unless explicitly confirmed via `TRUSTVAULT_TEST_DB_CONFIRMED=true` AND the database name contains `test`.
+  4. Requires explicit test designation for local databases (database name containing `test`, `trustvault_test=true` query param, or `TRUSTVAULT_ALLOW_TEST_DB=true`).
+  5. Never prints or leaks credentials, passwords, or full connection strings in logs or error messages.
+- **Fail-Closed Pool Stub (`apps/api/src/db/pool.ts`):** Updated pool initialization so that in test mode without `TEST_DATABASE_URL`, a stub pool is returned that permits unit tests to import route modules without crashing, but throws immediate fail-closed guard errors if any SQL query or connection attempt is made.
+- **In-Memory Storage & Session Isolation:**
+  - `apps/api/src/documents/storage.ts`: Changed default driver to `InMemoryStorageDriver` in test mode, guaranteeing zero file uploads or deletions in Supabase Storage during tests.
+  - `apps/api/src/auth/session.ts`: In test mode without a database, `createSessionMiddleware` uses `express-session`'s in-memory store so unit tests run completely offline.
+- **Categorized Test Scripts & Unit Test Suites (`apps/api/package.json`):**
+  - Added `npm run test:unit` and `npm run test:integration` scripts.
+  - Implemented unit test suites: `tests/unit/guard.test.ts` (9 tests), `tests/unit/file-validator.test.ts` (13 tests), and `tests/unit/sanitizer.test.ts` (6 tests), alongside existing unit tests `tests/argon2.test.ts` (10 tests), `tests/health.test.ts` (2 tests), and `tests/csrf.test.ts` (8 tests).
+  - Mocked `pool.query` in `tests/csrf.test.ts` for origin check verification, enabling all 48 unit tests to execute with 0 database dependencies.
+- **Scoped Test Fixture Tracking (`apps/api/tests/helpers/test-db.ts`):** Created `TestFixtureTracker` to track created user IDs, document IDs, and emails, executing strictly scoped, foreign-key-ordered deletion without table truncation or risk to unrelated records.
+- **Hardened Global Teardown (`apps/api/tests/global-teardown.ts`):** Updated global teardown hook to skip database operations when `env.DATABASE_URL` is empty.
+- **Configuration Templates (`.env.test.example`):** Added `.env.test.example` documenting how to point `TEST_DATABASE_URL` to an isolated local or disposable test database.
+
+**Mistakes and corrections:**
+- *Argon2 Credential Redaction Pattern in Audit Service:* Discovered that the regex pattern `/^\$argon2[a-z]?\$/i` in `apps/api/src/audit/service.ts` had an end-of-string anchor `$` after the prefix, failing to redact full Argon2 hashes like `$argon2id$v=19$...`. Updated regex to `/^\$argon2[a-z0-9$,=]+/i`.
+- *Filename Validation Assertion Alignment:* Corrected test assertions in `tests/unit/file-validator.test.ts` to match actual implementations in `file-validator.ts` (`validateFilename` for control char / null byte check, `detectMimeTypeFromBuffer` for magic bytes, and `validateUploadedBuffer` for buffer policy checks).
+
+**Verification:**
+- `npm run test:unit`: 48 tests passed across 6 suites in 2.3s with zero database writes and zero calls to Supabase.
+- `npm run test:integration`: Verified fail-closed behavior when `TEST_DATABASE_URL` is not set; all database-touching tests were aborted with `[FAIL-CLOSED GUARD]` errors, writing 0 records to Supabase.
+- `npm run typecheck`: Passed cleanly with 0 TypeScript errors across monorepo (`apps/api` and `apps/web`).
+- `npm run build`: Both API (`tsc`) and Web (`vite build`) built successfully.
+- Database audit: Confirmed zero test records were written to the Supabase database.
+
 ## Documentation Rules
 
 - Record genuine AI prompts, contributions, and corrections.
