@@ -53,5 +53,11 @@ export async function teardown() {
     );
   } catch (err) {
     console.error("Global test teardown database cleanup warning:", err);
+  } finally {
+    try {
+      await pool.end();
+    } catch {
+      // Ignore if pool already closed or stub
+    }
   }
 }
