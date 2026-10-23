@@ -3,9 +3,12 @@ import { Navigate, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/context/auth-context";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ThemeSwitcher } from "@/components/ui/theme-switcher";
+import { Spinner } from "@/components/ui/spinner";
 import {
   RiShieldCheckLine,
   RiLock2Line,
@@ -28,8 +31,30 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
+  // If session is still verifying, show clean initial session-loading screen to prevent flash
+  if (loading) {
+    return (
+      <div
+        className="flex flex-col items-center justify-center min-h-screen bg-background text-foreground"
+        role="status"
+        aria-busy="true"
+        aria-label="Verifying secure session"
+      >
+        <div className="flex flex-col items-center gap-4 animate-pulse">
+          <div className="flex items-center justify-center size-14 rounded-2xl bg-primary/10 text-primary">
+            <RiShieldCheckLine className="size-8" />
+          </div>
+          <div className="text-center">
+            <h2 className="font-heading font-bold text-lg">TrustVault</h2>
+            <p className="text-xs text-muted-foreground mt-1">Verifying secure session…</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // If already authenticated, redirect to destination or overview
-  if (!loading && isAuthenticated) {
+  if (isAuthenticated) {
     const from = (location.state as any)?.from?.pathname || "/overview";
     return <Navigate to={from} replace />;
   }
@@ -103,6 +128,11 @@ export function LoginPage() {
 
   return (
     <div className="min-h-screen w-full flex items-center justify-center p-4 bg-background relative overflow-hidden">
+      {/* Top right theme toggle */}
+      <div className="absolute top-4 right-4 z-20">
+        <ThemeSwitcher />
+      </div>
+
       {/* Subtle decorative background gradient */}
       <div className="absolute inset-0 bg-radial-[at_top_right] from-primary/5 via-transparent to-transparent pointer-events-none" />
 
@@ -171,10 +201,9 @@ export function LoginPage() {
                   <div className="space-y-1.5">
                     <Label htmlFor="login-password">Password</Label>
                     <div className="relative">
-                      <RiLock2Line className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
-                      <Input
+                      <RiLock2Line className="absolute left-3 top-2.5 size-4 text-muted-foreground z-10 pointer-events-none" />
+                      <PasswordInput
                         id="login-password"
-                        type="password"
                         className="pl-9"
                         placeholder="••••••••••••"
                         value={password}
@@ -188,8 +217,20 @@ export function LoginPage() {
                 </CardContent>
 
                 <CardFooter className="flex flex-col gap-3 pt-2">
-                  <Button type="submit" className="w-full" disabled={isSubmitting}>
-                    {isSubmitting ? "Authenticating…" : "Sign In to Vault"}
+                  <Button
+                    type="submit"
+                    className="w-full"
+                    disabled={isSubmitting}
+                    aria-busy={isSubmitting}
+                  >
+                    {isSubmitting ? (
+                      <>
+                        <Spinner size="xs" className="mr-2" />
+                        <span>Authenticating…</span>
+                      </>
+                    ) : (
+                      "Sign In to Vault"
+                    )}
                   </Button>
                 </CardFooter>
               </form>
@@ -220,10 +261,9 @@ export function LoginPage() {
                   <div className="space-y-1.5">
                     <Label htmlFor="reg-password">Password</Label>
                     <div className="relative">
-                      <RiLock2Line className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
-                      <Input
+                      <RiLock2Line className="absolute left-3 top-2.5 size-4 text-muted-foreground z-10 pointer-events-none" />
+                      <PasswordInput
                         id="reg-password"
-                        type="password"
                         className="pl-9"
                         placeholder="Min. 12 characters"
                         value={password}
@@ -243,10 +283,9 @@ export function LoginPage() {
                   <div className="space-y-1.5">
                     <Label htmlFor="reg-confirm">Confirm Password</Label>
                     <div className="relative">
-                      <RiLock2Line className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
-                      <Input
+                      <RiLock2Line className="absolute left-3 top-2.5 size-4 text-muted-foreground z-10 pointer-events-none" />
+                      <PasswordInput
                         id="reg-confirm"
-                        type="password"
                         className="pl-9"
                         placeholder="Re-enter password"
                         value={confirmPassword}
@@ -267,8 +306,20 @@ export function LoginPage() {
                 </CardContent>
 
                 <CardFooter className="flex flex-col gap-3 pt-2">
-                  <Button type="submit" className="w-full" disabled={isSubmitting}>
-                    {isSubmitting ? "Creating Account…" : "Create Account"}
+                  <Button
+                    type="submit"
+                    className="w-full"
+                    disabled={isSubmitting}
+                    aria-busy={isSubmitting}
+                  >
+                    {isSubmitting ? (
+                      <>
+                        <Spinner size="xs" className="mr-2" />
+                        <span>Creating Account…</span>
+                      </>
+                    ) : (
+                      "Create Account"
+                    )}
                   </Button>
                 </CardFooter>
               </form>

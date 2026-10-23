@@ -10,6 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Spinner } from "@/components/ui/spinner";
 import { documentsApi } from "@/lib/api";
 import type { DocumentItem } from "@/types";
 import { RiEditLine, RiAlertLine } from "@remixicon/react";
@@ -128,8 +129,19 @@ export function EditDocumentDialog({
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={loading}>
-              {loading ? "Saving…" : "Save Changes"}
+            <Button
+              type="submit"
+              disabled={loading}
+              aria-busy={loading}
+            >
+              {loading ? (
+                <>
+                  <Spinner size="xs" className="mr-2" />
+                  <span>Saving…</span>
+                </>
+              ) : (
+                "Save Changes"
+              )}
             </Button>
           </DialogFooter>
         </form>

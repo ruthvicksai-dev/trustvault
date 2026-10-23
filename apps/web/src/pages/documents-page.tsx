@@ -8,6 +8,8 @@ import { EditDocumentDialog } from "@/components/documents/edit-document-dialog"
 import { DeleteDocumentDialog } from "@/components/documents/delete-document-dialog";
 import { ShareDialog } from "@/components/sharing/share-dialog";
 import { DocumentAuditDialog } from "@/components/audit/document-audit-dialog";
+import { DocumentRowSkeleton } from "@/components/documents/document-skeleton";
+import { Spinner } from "@/components/ui/spinner";
 import { useAuth } from "@/context/auth-context";
 import { documentsApi } from "@/lib/api";
 import { formatBytes, formatDate, getMimeLabel } from "@/lib/utils";
@@ -178,9 +180,9 @@ export function DocumentsPage() {
 
         {/* Document Table / List */}
         {loading ? (
-          <div className="space-y-3">
+          <div className="space-y-3" aria-busy="true" role="status">
             {[1, 2, 3, 4, 5].map((i) => (
-              <div key={i} className="h-16 rounded-3xl bg-muted/30 animate-pulse border border-border/50" />
+              <DocumentRowSkeleton key={i} />
             ))}
           </div>
         ) : documents.length === 0 ? (
@@ -261,10 +263,20 @@ export function DocumentsPage() {
                       size="sm"
                       onClick={() => handleDownload(doc)}
                       disabled={downloadingId === doc.id}
+                      aria-busy={downloadingId === doc.id}
                       title="Download verified document stream"
                     >
-                      <RiDownloadLine className="size-3.5 mr-1" />
-                      {downloadingId === doc.id ? "Downloading…" : "Download"}
+                      {downloadingId === doc.id ? (
+                        <>
+                          <Spinner size="xs" className="mr-1.5" />
+                          <span>Downloading…</span>
+                        </>
+                      ) : (
+                        <>
+                          <RiDownloadLine className="size-3.5 mr-1" />
+                          <span>Download</span>
+                        </>
+                      )}
                     </Button>
 
                     {/* Edit button (Owner or Edit grant) */}

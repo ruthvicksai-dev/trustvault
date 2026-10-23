@@ -9,7 +9,9 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
+import { Spinner } from "@/components/ui/spinner";
 import { authApi } from "@/lib/api";
 import { RiLockPasswordLine, RiAlertLine, RiCheckLine } from "@remixicon/react";
 
@@ -102,26 +104,26 @@ export function ChangePasswordDialog({ open, onOpenChange }: ChangePasswordDialo
         <form onSubmit={handleSubmit} className="space-y-4 pt-2">
           <div className="space-y-1.5">
             <Label htmlFor="current-password">Current Password</Label>
-            <Input
+            <PasswordInput
               id="current-password"
-              type="password"
               value={currentPassword}
               onChange={(e) => setCurrentPassword(e.target.value)}
               placeholder="••••••••••••"
               disabled={loading}
+              autoComplete="current-password"
               required
             />
           </div>
 
           <div className="space-y-1.5">
             <Label htmlFor="new-password">New Password</Label>
-            <Input
+            <PasswordInput
               id="new-password"
-              type="password"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               placeholder="Min. 12 characters"
               disabled={loading}
+              autoComplete="new-password"
               required
               minLength={12}
               maxLength={128}
@@ -130,13 +132,13 @@ export function ChangePasswordDialog({ open, onOpenChange }: ChangePasswordDialo
 
           <div className="space-y-1.5">
             <Label htmlFor="confirm-password">Confirm New Password</Label>
-            <Input
+            <PasswordInput
               id="confirm-password"
-              type="password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               placeholder="Re-enter new password"
               disabled={loading}
+              autoComplete="new-password"
               required
             />
           </div>
@@ -150,8 +152,19 @@ export function ChangePasswordDialog({ open, onOpenChange }: ChangePasswordDialo
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={loading}>
-              {loading ? "Updating..." : "Update Password"}
+            <Button
+              type="submit"
+              disabled={loading}
+              aria-busy={loading}
+            >
+              {loading ? (
+                <>
+                  <Spinner size="xs" className="mr-2" />
+                  <span>Updating…</span>
+                </>
+              ) : (
+                "Update Password"
+              )}
             </Button>
           </DialogFooter>
         </form>

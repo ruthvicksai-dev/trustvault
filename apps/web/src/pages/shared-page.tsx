@@ -2,6 +2,8 @@ import React, { useState, useEffect } from "react";
 import { Header } from "@/components/layout/header";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { DocumentRowSkeleton } from "@/components/documents/document-skeleton";
+import { Spinner } from "@/components/ui/spinner";
 import { EditDocumentDialog } from "@/components/documents/edit-document-dialog";
 import { documentsApi } from "@/lib/api";
 import { formatBytes, formatDate, getMimeLabel } from "@/lib/utils";
@@ -103,9 +105,9 @@ export function SharedPage() {
         )}
 
         {loading ? (
-          <div className="space-y-3">
+          <div className="space-y-3" aria-busy="true" role="status">
             {[1, 2, 3].map((i) => (
-              <div key={i} className="h-16 rounded-3xl bg-muted/30 animate-pulse border border-border/50" />
+              <DocumentRowSkeleton key={i} />
             ))}
           </div>
         ) : documents.length === 0 ? (
@@ -163,9 +165,19 @@ export function SharedPage() {
                       size="sm"
                       onClick={() => handleDownload(doc)}
                       disabled={downloadingId === doc.id}
+                      aria-busy={downloadingId === doc.id}
                     >
-                      <RiDownloadLine className="size-3.5 mr-1" />
-                      {downloadingId === doc.id ? "Downloading…" : "Download"}
+                      {downloadingId === doc.id ? (
+                        <>
+                          <Spinner size="xs" className="mr-1.5" />
+                          <span>Downloading…</span>
+                        </>
+                      ) : (
+                        <>
+                          <RiDownloadLine className="size-3.5 mr-1" />
+                          <span>Download</span>
+                        </>
+                      )}
                     </Button>
 
                     {canEdit && (

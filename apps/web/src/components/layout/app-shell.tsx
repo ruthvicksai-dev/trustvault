@@ -10,7 +10,12 @@ export function AppShell() {
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-background text-foreground">
+      <div
+        className="flex flex-col items-center justify-center min-h-screen bg-background text-foreground"
+        role="status"
+        aria-busy="true"
+        aria-label="Verifying secure session"
+      >
         <div className="flex flex-col items-center gap-4 animate-pulse">
           <div className="flex items-center justify-center size-14 rounded-2xl bg-primary/10 text-primary">
             <RiShieldCheckLine className="size-8" />

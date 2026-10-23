@@ -23,4 +23,16 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    chunkSizeWarningLimit: 600,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          "vendor-react": ["react", "react-dom", "react-router-dom"],
+          "vendor-icons": ["@remixicon/react"],
+          "vendor-ui": ["@base-ui/react", "class-variance-authority"],
+        },
+      },
+    },
+  },
 });

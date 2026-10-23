@@ -3,6 +3,8 @@ import { Header } from "@/components/layout/header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { AuditEventSkeleton } from "@/components/audit/audit-skeleton";
+import { Spinner } from "@/components/ui/spinner";
 import { useAuth } from "@/context/auth-context";
 import { auditApi } from "@/lib/api";
 import { formatDate } from "@/lib/utils";
@@ -208,9 +210,9 @@ export function AdminPage() {
 
         {/* Events Table / List */}
         {loading ? (
-          <div className="space-y-2">
+          <div className="space-y-3" aria-busy="true" role="status">
             {[1, 2, 3, 4, 5].map((i) => (
-              <div key={i} className="h-16 rounded-3xl bg-muted/30 animate-pulse border border-border/50" />
+              <AuditEventSkeleton key={i} />
             ))}
           </div>
         ) : events.length === 0 ? (

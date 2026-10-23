@@ -10,6 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Spinner } from "@/components/ui/spinner";
 import { documentsApi } from "@/lib/api";
 import {
   formatBytes,
@@ -236,6 +237,17 @@ export function UploadDialog({ open, onOpenChange, onSuccess }: UploadDialogProp
             </div>
           </div>
 
+          {loading && (
+            <div
+              className="flex items-center gap-2.5 p-3 rounded-2xl bg-primary/10 text-primary text-xs border border-primary/20 animate-pulse"
+              role="status"
+              aria-busy="true"
+            >
+              <Spinner size="xs" />
+              <span>Encrypting file payload & streaming to private vault storage…</span>
+            </div>
+          )}
+
           <DialogFooter className="pt-3">
             <Button
               type="button"
@@ -245,8 +257,19 @@ export function UploadDialog({ open, onOpenChange, onSuccess }: UploadDialogProp
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={loading || !file}>
-              {loading ? "Encrypting & Uploading…" : "Upload Document"}
+            <Button
+              type="submit"
+              disabled={loading || !file}
+              aria-busy={loading}
+            >
+              {loading ? (
+                <>
+                  <Spinner size="xs" className="mr-2" />
+                  <span>Encrypting & Uploading…</span>
+                </>
+              ) : (
+                "Upload Document"
+              )}
             </Button>
           </DialogFooter>
         </form>

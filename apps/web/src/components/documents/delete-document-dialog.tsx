@@ -8,6 +8,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import { documentsApi } from "@/lib/api";
 import type { DocumentItem } from "@/types";
 import { RiDeleteBinLine, RiAlertLine } from "@remixicon/react";
@@ -78,8 +79,16 @@ export function DeleteDocumentDialog({
             variant="destructive"
             onClick={handleDelete}
             disabled={loading}
+            aria-busy={loading}
           >
-            {loading ? "Deleting…" : "Delete Document"}
+            {loading ? (
+              <>
+                <Spinner size="xs" className="mr-2" />
+                <span>Deleting…</span>
+              </>
+            ) : (
+              "Delete Document"
+            )}
           </Button>
         </DialogFooter>
       </DialogContent>

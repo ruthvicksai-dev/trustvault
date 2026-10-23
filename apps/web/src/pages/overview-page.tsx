@@ -4,6 +4,8 @@ import { Header } from "@/components/layout/header";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Spinner } from "@/components/ui/spinner";
 import { UploadDialog } from "@/components/documents/upload-dialog";
 import { useAuth } from "@/context/auth-context";
 import { documentsApi } from "@/lib/api";
@@ -113,7 +115,7 @@ export function OverviewPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold font-heading">
-                {loading ? "…" : documents.length}
+                {loading ? <Skeleton className="h-8 w-14 rounded-lg" /> : documents.length}
               </div>
               <p className="text-[11px] text-muted-foreground mt-1">
                 Documents available under current grants
@@ -132,7 +134,7 @@ export function OverviewPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold font-heading">
-                {loading ? "…" : ownedDocs.length}
+                {loading ? <Skeleton className="h-8 w-14 rounded-lg" /> : ownedDocs.length}
               </div>
               <p className="text-[11px] text-muted-foreground mt-1">
                 Created and managed by you
@@ -151,7 +153,7 @@ export function OverviewPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold font-heading">
-                {loading ? "…" : sharedDocs.length}
+                {loading ? <Skeleton className="h-8 w-14 rounded-lg" /> : sharedDocs.length}
               </div>
               <p className="text-[11px] text-muted-foreground mt-1">
                 Granted by document owners
@@ -182,9 +184,26 @@ export function OverviewPage() {
           )}
 
           {loading ? (
-            <div className="space-y-2">
+            <div className="space-y-2" aria-busy="true" role="status">
               {[1, 2, 3].map((i) => (
-                <div key={i} className="h-16 rounded-2xl bg-muted/40 animate-pulse" />
+                <div
+                  key={i}
+                  className="flex items-center justify-between p-3.5 rounded-2xl border border-border bg-card gap-3"
+                  aria-hidden="true"
+                >
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                    <Skeleton className="size-9 rounded-xl shrink-0" />
+                    <div className="space-y-1.5 min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <Skeleton className="h-4 w-40 sm:w-56 rounded-md" />
+                        <Skeleton className="h-3.5 w-16 rounded-full" />
+                        <Skeleton className="h-3.5 w-12 rounded-full" />
+                      </div>
+                      <Skeleton className="h-3 w-48 rounded-md" />
+                    </div>
+                  </div>
+                  <Skeleton className="h-7 w-20 rounded-lg shrink-0" />
+                </div>
               ))}
             </div>
           ) : recentDocs.length === 0 ? (
@@ -203,7 +222,7 @@ export function OverviewPage() {
               {canUpload && (
                 <Button size="sm" onClick={() => setUploadOpen(true)}>
                   <RiUploadCloud2Line className="size-4 mr-1.5" />
-                  Upload First Document
+                  Upload Document
                 </Button>
               )}
             </div>
@@ -212,15 +231,15 @@ export function OverviewPage() {
               {recentDocs.map((doc) => (
                 <div
                   key={doc.id}
-                  className="flex items-center justify-between p-3.5 rounded-2xl border border-border bg-card hover:bg-muted/20 transition-colors gap-3"
+                  className="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 rounded-2xl border border-border bg-card hover:bg-muted/20 transition-colors gap-3"
                 >
                   <div className="flex items-center gap-3 min-w-0">
                     <div className="flex items-center justify-center size-9 rounded-xl bg-primary/10 text-primary shrink-0">
                       <RiFileTextLine className="size-5" />
                     </div>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-semibold text-foreground truncate">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs font-semibold text-foreground truncate max-w-[200px] sm:max-w-xs md:max-w-sm">
                           {doc.title}
                         </span>
                         <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4">
@@ -233,22 +252,34 @@ export function OverviewPage() {
                           {doc.permission}
                         </Badge>
                       </div>
-                      <p className="text-[11px] text-muted-foreground mt-0.5">
+                      <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
                         {formatBytes(doc.sizeBytes)} • {getMimeLabel(doc.mimeType)} • Added{" "}
                         {formatDate(doc.createdAt)}
                       </p>
                     </div>
                   </div>
 
-                  <Button
-                    variant="outline"
-                    size="xs"
-                    onClick={() => handleDownload(doc)}
-                    disabled={downloadingId === doc.id}
-                  >
-                    <RiDownloadLine className="size-3.5 mr-1" />
-                    {downloadingId === doc.id ? "Downloading…" : "Download"}
-                  </Button>
+                  <div className="self-end sm:self-auto shrink-0">
+                    <Button
+                      variant="outline"
+                      size="xs"
+                      onClick={() => handleDownload(doc)}
+                      disabled={downloadingId === doc.id}
+                      aria-busy={downloadingId === doc.id}
+                    >
+                      {downloadingId === doc.id ? (
+                        <>
+                          <Spinner size="xs" className="mr-1.5" />
+                          <span>Downloading…</span>
+                        </>
+                      ) : (
+                        <>
+                          <RiDownloadLine className="size-3.5 mr-1" />
+                          <span>Download</span>
+                        </>
+                      )}
+                    </Button>
+                  </div>
                 </div>
               ))}
             </div>

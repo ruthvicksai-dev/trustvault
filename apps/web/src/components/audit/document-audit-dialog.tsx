@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { AuditEventSkeleton } from "@/components/audit/audit-skeleton";
 import { documentsApi } from "@/lib/api";
 import { formatDate } from "@/lib/utils";
 import type { DocumentItem, AuditEvent } from "@/types";
@@ -122,10 +123,10 @@ export function DocumentAuditDialog({
         )}
 
         {loading ? (
-          <div className="space-y-3 py-4">
-            <div className="h-12 bg-muted/40 rounded-2xl animate-pulse" />
-            <div className="h-12 bg-muted/40 rounded-2xl animate-pulse" />
-            <div className="h-12 bg-muted/40 rounded-2xl animate-pulse" />
+          <div className="space-y-3 py-3" aria-busy="true" role="status">
+            {[1, 2, 3].map((i) => (
+              <AuditEventSkeleton key={i} />
+            ))}
           </div>
         ) : events.length === 0 ? (
           <div className="p-8 text-center text-xs text-muted-foreground bg-muted/30 rounded-3xl border border-border/50">

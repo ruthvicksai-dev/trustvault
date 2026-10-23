@@ -3,6 +3,8 @@ import { Header } from "@/components/layout/header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { AuditEventSkeleton } from "@/components/audit/audit-skeleton";
 import { useAuth } from "@/context/auth-context";
 import { documentsApi } from "@/lib/api";
 import { formatDate } from "@/lib/utils";
@@ -152,7 +154,7 @@ export function AuditPage() {
 
         {/* Document Selector */}
         {loadingDocs ? (
-          <div className="h-12 bg-muted/40 rounded-2xl animate-pulse" />
+          <Skeleton className="h-16 w-full rounded-3xl" aria-busy="true" />
         ) : documents.length === 0 ? (
           <div className="p-12 text-center rounded-3xl border border-dashed border-border bg-card space-y-2">
             <div className="flex items-center justify-center size-12 rounded-2xl bg-muted mx-auto text-muted-foreground">
@@ -197,9 +199,9 @@ export function AuditPage() {
 
             {/* Audit Events List */}
             {loadingEvents ? (
-              <div className="space-y-3">
+              <div className="space-y-3" aria-busy="true" role="status">
                 {[1, 2, 3, 4].map((i) => (
-                  <div key={i} className="h-16 rounded-3xl bg-muted/30 animate-pulse border border-border/50" />
+                  <AuditEventSkeleton key={i} />
                 ))}
               </div>
             ) : events.length === 0 ? (

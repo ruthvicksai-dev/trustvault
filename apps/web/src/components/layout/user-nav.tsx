@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { ChangePasswordDialog } from "@/components/settings/change-password-dialog";
+import { ThemeSwitcher } from "@/components/ui/theme-switcher";
+import { Spinner } from "@/components/ui/spinner";
 import {
   RiUser3Line,
   RiLockPasswordLine,
@@ -15,6 +17,7 @@ export function UserNav() {
   const { user, logout } = useAuth();
   const [open, setOpen] = useState(false);
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Close dropdown on outside click
@@ -77,10 +80,10 @@ export function UserNav() {
           role="menu"
           aria-orientation="vertical"
           aria-labelledby="user-menu-button"
-          className="absolute right-0 z-50 mt-2 w-64 origin-top-right rounded-3xl border border-border/80 bg-popover/95 p-2 text-popover-foreground shadow-xl backdrop-blur-md outline-none animate-in fade-in-0 zoom-in-95 duration-100"
+          className="absolute right-0 z-50 mt-2 w-72 sm:w-80 max-w-[calc(100vw-1.5rem)] origin-top-right rounded-3xl border border-border bg-popover p-2.5 text-popover-foreground shadow-2xl outline-none animate-in fade-in-0 zoom-in-95 duration-100"
         >
           {/* User Safe Identity Summary */}
-          <div className="px-3 py-2.5">
+          <div className="px-3 py-2">
             <p className="text-xs font-semibold text-foreground truncate" title={user.email}>
               {user.email}
             </p>
@@ -88,24 +91,35 @@ export function UserNav() {
               <Badge variant="secondary" className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0 h-4">
                 {user.role}
               </Badge>
-              <span className="text-[11px] text-muted-foreground flex items-center gap-1">
-                <span className="size-1.5 rounded-full bg-emerald-500 inline-block" />
+              <span className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                <span className="size-1.5 rounded-full bg-emerald-500 inline-block shrink-0" />
                 Active Session
               </span>
             </div>
           </div>
 
-          <Separator className="my-1.5 opacity-60" />
+          <Separator className="my-2 bg-border/70" />
+
+          {/* Theme Selector */}
+          <div className="px-2 py-1.5">
+            <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2 px-1">
+              Appearance
+            </div>
+            <ThemeSwitcher variant="segmented" className="w-full" />
+          </div>
+
+          <Separator className="my-2 bg-border/70" />
 
           {/* Change Password Action */}
           <button
             type="button"
             role="menuitem"
+            disabled={isLoggingOut}
             onClick={() => {
               setOpen(false);
               setChangePasswordOpen(true);
             }}
-            className="flex w-full items-center gap-2.5 rounded-2xl px-3 py-2 text-xs font-medium text-foreground hover:bg-accent hover:text-accent-foreground transition-colors cursor-pointer text-left"
+            className="flex w-full items-center gap-2.5 rounded-2xl px-3 py-2 text-xs font-medium text-foreground hover:bg-accent hover:text-accent-foreground transition-colors cursor-pointer text-left disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <RiLockPasswordLine className="size-4 text-muted-foreground shrink-0" />
             <span>Change Password</span>
@@ -113,18 +127,34 @@ export function UserNav() {
 
           <Separator className="my-1.5 opacity-60" />
 
-          {/* Sign Out Action */}
+          {/* Sign Out Action with pending state */}
           <button
             type="button"
             role="menuitem"
-            onClick={() => {
-              setOpen(false);
-              logout();
+            disabled={isLoggingOut}
+            aria-busy={isLoggingOut}
+            onClick={async () => {
+              setIsLoggingOut(true);
+              try {
+                await logout();
+              } finally {
+                setIsLoggingOut(false);
+                setOpen(false);
+              }
             }}
-            className="flex w-full items-center gap-2.5 rounded-2xl px-3 py-2 text-xs font-medium text-destructive hover:bg-destructive/10 transition-colors cursor-pointer text-left"
+            className="flex w-full items-center gap-2.5 rounded-2xl px-3 py-2 text-xs font-medium text-destructive hover:bg-destructive/10 transition-colors cursor-pointer text-left disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <RiLogoutBoxRLine className="size-4 text-destructive shrink-0" />
-            <span>Sign Out</span>
+            {isLoggingOut ? (
+              <>
+                <Spinner size="xs" className="text-destructive shrink-0" />
+                <span>Signing Out…</span>
+              </>
+            ) : (
+              <>
+                <RiLogoutBoxRLine className="size-4 text-destructive shrink-0" />
+                <span>Sign Out</span>
+              </>
+            )}
           </button>
         </div>
       )}

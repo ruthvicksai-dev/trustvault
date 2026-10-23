@@ -11,6 +11,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Spinner } from "@/components/ui/spinner";
+import { Skeleton } from "@/components/ui/skeleton";
 import { documentsApi } from "@/lib/api";
 import { formatDate } from "@/lib/utils";
 import type { DocumentItem, DocumentGrant } from "@/types";
@@ -201,9 +203,24 @@ export function ShareDialog({ document, open, onOpenChange }: ShareDialogProps) 
             </div>
 
             <div className="flex items-end">
-              <Button type="submit" size="default" disabled={granting || loading} className="w-full sm:w-auto">
-                <RiUserAddLine className="size-4 mr-1.5" />
-                {granting ? "Granting…" : "Grant"}
+              <Button
+                type="submit"
+                size="default"
+                disabled={granting || loading}
+                aria-busy={granting}
+                className="w-full sm:w-auto"
+              >
+                {granting ? (
+                  <>
+                    <Spinner size="xs" className="mr-1.5" />
+                    <span>Granting…</span>
+                  </>
+                ) : (
+                  <>
+                    <RiUserAddLine className="size-4 mr-1.5" />
+                    <span>Grant Access</span>
+                  </>
+                )}
               </Button>
             </div>
           </div>
@@ -225,9 +242,9 @@ export function ShareDialog({ document, open, onOpenChange }: ShareDialogProps) 
           </div>
 
           {loading ? (
-            <div className="space-y-2 py-3">
-              <div className="h-10 bg-muted/50 rounded-2xl animate-pulse" />
-              <div className="h-10 bg-muted/50 rounded-2xl animate-pulse" />
+            <div className="space-y-2 py-1" aria-busy="true" role="status">
+              <Skeleton className="h-12 w-full rounded-2xl" />
+              <Skeleton className="h-12 w-full rounded-2xl" />
             </div>
           ) : activeGrants.length === 0 ? (
             <div className="p-4 rounded-2xl bg-muted/30 border border-border/50 text-center text-xs text-muted-foreground">
@@ -306,8 +323,16 @@ export function ShareDialog({ document, open, onOpenChange }: ShareDialogProps) 
                 size="xs"
                 onClick={() => handleRevokeGrant(confirmRevokeGrant)}
                 disabled={!!revokingId}
+                aria-busy={revokingId === confirmRevokeGrant.id}
               >
-                {revokingId === confirmRevokeGrant.id ? "Revoking…" : "Revoke Access"}
+                {revokingId === confirmRevokeGrant.id ? (
+                  <>
+                    <Spinner size="xs" className="mr-1.5" />
+                    <span>Revoking…</span>
+                  </>
+                ) : (
+                  "Revoke Access"
+                )}
               </Button>
             </div>
           </div>
