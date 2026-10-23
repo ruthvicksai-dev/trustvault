@@ -191,6 +191,49 @@ Implement Phase 7 of TrustVault: ensure the audit trail reliably records securit
 - Ran `git diff --check`: confirmed clean diff with zero whitespace or line-break issues.
 - Database integrity: verified that local migrations and remote schema remain intact with no destructive changes or schema drift.
 
+## Phase 8 — Security Testing & Hardening
+
+**Date:** 2026-10-23
+
+**Prompt / AI assistance requested:**
+Act as a Senior Application Security Engineer and Backend Test Engineer conducting a security-focused review of TrustVault. Prioritize authorization correctness, authentication security, confidentiality, audit reliability, and regression prevention. Establish a baseline, test available scripts, review authentication/session security, test authorization and IDOR boundaries, verify grant revocation and download invariants, review upload and storage file validation, assess audit trail security, test API input abuse and injection scenarios, evaluate release blockers RB-01 through RB-04, implement targeted security fixes supported by regression tests, and update documentation. Do not commit, push, deploy, or rewrite applied migrations.
+
+**AI contribution:**
+- Established baseline: verified clean `git status` on `master`, ran baseline `npm test` (126 tests passed across 8 test files in 100.97s), clean `npm run typecheck`, and successful production `npm run build`.
+- Reviewed codebase against threat model and identified genuine vulnerabilities and security hardening opportunities:
+  - *Global Error Handling & Information Disclosure (Finding 1):* Identified that `apps/api/src/app.ts` mapped body-parser malformed JSON syntax errors and payload size limit errors to HTTP 500 instead of HTTP 400 and HTTP 413, and disclosed internal error details (`err.message`) in non-production environments. Implemented targeted fix in `app.ts` mapping `entity.parse.failed` to HTTP 400 Bad Request, `entity.too.large` to HTTP 413 Payload Too Large, and returning strict uniform `{ error: "Internal server error" }` on 500 errors across all environments without leaking stack traces, paths, or SQL details.
+  - *Session Expiry & Stale Timestamp Verification (Finding 2):* Hardened `requireAuth` in `apps/api/src/auth/middleware.ts` to strictly validate `createdAt` timestamp existence and type, destroying sessions and returning HTTP 401 `Session expired` with `auth_session_expired` audit logging if `createdAt` is missing, non-numeric, or older than 24 hours (`ABSOLUTE_SESSION_TIMEOUT_MS`).
+  - *Unauthenticated Access Matrix (Finding 3):* Verified fail-closed 401 rejection across all document, grant, download, and audit routes.
+  - *Repeated & Concurrent Revocation Invariants (Finding 4):* Verified and tested that repeated grant revocations return HTTP 404 (`Active grant not found or already revoked`), and concurrent revocation requests execute safely without deadlocks.
+  - *Input Abuse & Injection Resistance (Finding 5):* Verified parameterized SQL resistance to SQL injection across search, category, and audit filter fields; verified neutralization of Cross-Site Scripting (XSS) in document titles and Content-Disposition headers (`nosniff`, RFC 5987 / RFC 6266 encoding); verified rejection of untrusted CORS origins and missing CSRF tokens.
+- Authored a comprehensive security regression suite (`apps/api/tests/security.test.ts`) adding 25 automated security tests across authentication, authorization, grant revocation, audit access control, and API abuse/injection scenarios.
+- Conducted release blocker assessment for RB-01 through RB-04:
+  - RB-01 (MFA/TOTP): Classified as *Not implemented* (Release Blocker).
+  - RB-02 (Distributed Rate Limiting): Classified as *Partially implemented / Deployment-dependent* (in-memory rate limiting verified; Redis store required for multi-instance clusters).
+  - RB-03 (Transactional Email & Password Reset): Classified as *Not implemented* (Release Blocker).
+  - RB-04 (TLS Termination & Proxy Trust): Classified as *Partially implemented / Deployment-dependent* (proxy trust and `__Host-` / `Secure` cookie enforcement verified; ingress TLS certificates and reverse proxy CIDR binding are infrastructure deployment prerequisites).
+- Updated `THREATS.md` adding Section 5: Security Testing, Hardening & Attack Resistance Threat Matrix (T-SEC-01 through T-SEC-04) and renumbered subsequent sections.
+
+**Mistakes and corrections:**
+- *Cache-Control header string matching:* Initial test assertion expected exact string equality `"private, no-store, no-cache, must-revalidate"`, whereas `routes.ts` sends `"no-store, no-cache, must-revalidate, private"`. Updated assertion to check for inclusion of all required directives (`no-store`, `no-cache`, `must-revalidate`, `private`, and `Pragma: no-cache`).
+- *Windows path separator handling in XSS filename sanitization:* Testing an XSS payload containing closing tag `</script>` on Windows caused `path.win32.basename` to interpret `/` as a directory separator, stripping the opening tag `<script>alert('XSS-TEST')` as a directory path and sanitizing the remaining `script>.txt` to `script_.txt`. Confirmed this successfully neutralized the script tag, and updated test assertion to verify that raw script tags `<script>` and `</script>` are strictly absent from the `Content-Disposition` header.
+
+**Verification:**
+- Ran `npm test`: all 151 automated tests passed across all 9 test suites (0 failed, 0 skipped):
+  - `tests/health.test.ts` (2 tests passed)
+  - `tests/argon2.test.ts` (10 tests passed)
+  - `tests/csrf.test.ts` (8 tests passed)
+  - `tests/rate-limit.test.ts` (2 tests passed)
+  - `tests/auth.test.ts` (20 tests passed)
+  - `tests/authorization.test.ts` (23 tests passed)
+  - `tests/lifecycle.test.ts` (47 tests passed)
+  - `tests/audit.test.ts` (14 tests passed)
+  - `tests/security.test.ts` (25 tests passed)
+- Ran `npm run typecheck`: clean TypeScript validation with 0 errors across API and web workspaces.
+- Ran `npm run build`: verified production builds for both API and web frontends.
+- Ran `git diff --check`: confirmed clean diff with zero whitespace or line-break issues.
+- Database integrity: verified that local migrations and remote schema remain intact with no destructive changes or rewrite of applied migration `20261020161159_create_trustvault_schema.sql`.
+
 ## Documentation Rules
 
 - Record genuine AI prompts, contributions, and corrections.

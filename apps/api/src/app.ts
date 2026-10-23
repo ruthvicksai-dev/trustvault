@@ -73,20 +73,27 @@ app.use((_req, res) => {
   res.status(404).json({ error: "Not found" });
 });
 
-// Global error handler — never leak database details or stack traces
+// Global error handler — handle parser errors and never leak database details or stack traces
 app.use(
   (
-    err: Error,
+    err: any,
     _req: express.Request,
     res: express.Response,
     _next: express.NextFunction
   ) => {
-    console.error("Unhandled server error:", err.message);
-    res.status(500).json({
-      error:
-        env.NODE_ENV === "production"
-          ? "Internal server error"
-          : err.message,
-    });
+    // Malformed JSON payload syntax error from express.json()
+    if (err.type === "entity.parse.failed" || (err instanceof SyntaxError && "body" in err)) {
+      res.status(400).json({ error: "Malformed JSON payload in request body" });
+      return;
+    }
+
+    // Request entity exceeds express.json() limit (1MB)
+    if (err.type === "entity.too.large" || err.status === 413 || err.statusCode === 413) {
+      res.status(413).json({ error: "Request payload exceeds maximum permitted size" });
+      return;
+    }
+
+    console.error("Unhandled server error:", err?.message || err);
+    res.status(500).json({ error: "Internal server error" });
   }
 );

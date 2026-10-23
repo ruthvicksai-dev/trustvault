@@ -104,8 +104,9 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     return;
   }
 
-  // Enforce absolute session timeout
-  if (req.session.createdAt && Date.now() - req.session.createdAt > ABSOLUTE_SESSION_TIMEOUT_MS) {
+  // Enforce absolute session timeout (24 hours)
+  const sessionCreatedAt = typeof req.session.createdAt === "number" ? req.session.createdAt : undefined;
+  if (!sessionCreatedAt || Date.now() - sessionCreatedAt > ABSOLUTE_SESSION_TIMEOUT_MS) {
     const expiredUserId = req.session.userId;
     req.session.destroy(() => {});
     if (expiredUserId) {
@@ -113,7 +114,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
         actorId: expiredUserId,
         action: "auth_session_expired",
         outcome: "denied",
-        reason: "Session expired",
+        reason: !sessionCreatedAt ? "Session missing creation timestamp" : "Session expired",
       });
     }
     res.status(401).json({ error: "Session expired" });

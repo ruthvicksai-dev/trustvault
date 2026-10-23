@@ -65,7 +65,18 @@ This document outlines the security architecture, threat model, implemented cont
 
 ---
 
-## 5. Inherent Residual Risks (Architectural & Physical Limitations)
+## 5. Security Testing, Hardening & Attack Resistance Threat Matrix (Phase 8)
+
+| Threat ID | Threat Category | Threat Description | Implemented Mitigation | Verification Status |
+|:---|:---|:---|:---|:---|
+| **T-SEC-01** | **Global Error Information Leakage & Parser Handling** | Attacker probes API with malformed JSON, oversized payloads, or triggers server errors to elicit internal database details or stack traces. | - Global error middleware intercepts body-parser syntax errors (`entity.parse.failed`) and returns HTTP 400 with `{ error: "Malformed JSON payload in request body" }`.<br>- Request bodies exceeding 1MB limit return HTTP 413 with `{ error: "Request payload exceeds maximum permitted size" }`.<br>- Unhandled 500 server errors suppress `err.message` in all environments, returning uniform `{ error: "Internal server error" }`. | ✅ Verified with automated tests in `tests/security.test.ts`. |
+| **T-SEC-02** | **Session Staleness & Missing Timestamp Expiry Bypass** | Attacker retains access using an old or forged session with missing `createdAt` timestamp, bypassing the 24-hour absolute session limit. | - `requireAuth` verifies `createdAt` is a valid numeric timestamp within the last 24 hours (`ABSOLUTE_SESSION_TIMEOUT_MS`).<br>- Sessions with missing, non-numeric, or expired timestamps are immediately destroyed and rejected with HTTP 401 (`Session expired`), emitting `auth_session_expired` audit events. | ✅ Verified with automated tests in `tests/security.test.ts`. |
+| **T-SEC-03** | **Repeated & Concurrent Grant Revocation Races** | Concurrent or repeated revocation requests cause state inconsistency, race conditions, or unhandled errors. | - Atomic row-level conditional updates (`WHERE id = $1 AND document_id = $2 AND revoked_at IS NULL`) guarantee idempotency.<br>- Exactly one concurrent request succeeds (HTTP 200), while subsequent or racing requests return consistent HTTP 404 (`Active grant not found or already revoked`). | ✅ Verified with automated tests in `tests/security.test.ts`. |
+| **T-SEC-04** | **API Input Injection & Cross-Site Scripting (XSS)** | Attacker injects SQL payloads into search/category/title filters or injects active script tags into document titles. | - All database operations use parameterized SQL queries (`$1, $2, ...`) preventing SQL injection across all endpoints.<br>- Metadata responses return strictly typed JSON (`application/json; charset=utf-8`).<br>- Content downloads sanitize Content-Disposition filenames via RFC 6266 and RFC 5987, neutralizing path traversal and script tags, alongside `X-Content-Type-Options: nosniff`. | ✅ Verified with automated tests in `tests/security.test.ts`. |
+
+---
+
+## 6. Inherent Residual Risks (Architectural & Physical Limitations)
 
 The following risks are inherent to distributed web applications, cloud hosting, and digital content delivery. They cannot be eliminated solely through application software controls and represent accepted operational boundaries:
 
@@ -104,7 +115,7 @@ The following risks are inherent to distributed web applications, cloud hosting,
 
 ---
 
-## 6. Actionable Release Blockers & Production Deployment Prerequisites
+## 7. Actionable Release Blockers & Production Deployment Prerequisites
 
 The following engineering and infrastructure controls are **mandatory release blockers**. Each represents an actionable vulnerability or missing control that must be satisfied before general production deployment:
 
