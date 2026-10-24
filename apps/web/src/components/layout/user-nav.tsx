@@ -11,6 +11,7 @@ import {
   RiLockPasswordLine,
   RiLogoutBoxRLine,
   RiArrowDownSLine,
+  RiAlertLine,
 } from "@remixicon/react";
 
 export function UserNav() {
@@ -18,6 +19,7 @@ export function UserNav() {
   const [open, setOpen] = useState(false);
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [logoutError, setLogoutError] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Close dropdown on outside click
@@ -25,6 +27,7 @@ export function UserNav() {
     function handleClickOutside(event: MouseEvent) {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
         setOpen(false);
+        setLogoutError(null);
       }
     }
 
@@ -41,6 +44,7 @@ export function UserNav() {
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         setOpen(false);
+        setLogoutError(null);
       }
     }
 
@@ -62,7 +66,12 @@ export function UserNav() {
         id="user-menu-button"
         aria-expanded={open}
         aria-haspopup="true"
-        onClick={() => setOpen((prev) => !prev)}
+        onClick={() => {
+          setOpen((prev) => {
+            if (prev) setLogoutError(null);
+            return !prev;
+          });
+        }}
         className="flex items-center gap-2 p-1.5 sm:px-2.5 sm:py-1.5 rounded-full hover:bg-muted/70 transition-colors cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <div className="flex items-center justify-center size-7 rounded-full bg-primary/10 text-primary font-semibold text-xs uppercase shrink-0">
@@ -127,7 +136,17 @@ export function UserNav() {
 
           <Separator className="my-1.5 opacity-60" />
 
-          {/* Sign Out Action with pending state */}
+          {/* Sign Out Action with pending state and feedback */}
+          {logoutError && (
+            <div
+              role="alert"
+              className="flex items-start gap-2 p-2 mb-1.5 rounded-2xl bg-destructive/10 text-destructive text-xs border border-destructive/20"
+            >
+              <RiAlertLine className="size-3.5 shrink-0 mt-0.5" />
+              <span>{logoutError}</span>
+            </div>
+          )}
+
           <button
             type="button"
             role="menuitem"
@@ -135,11 +154,14 @@ export function UserNav() {
             aria-busy={isLoggingOut}
             onClick={async () => {
               setIsLoggingOut(true);
+              setLogoutError(null);
               try {
                 await logout();
+                setOpen(false);
+              } catch (err: any) {
+                setLogoutError(err?.message || "Failed to sign out. Please try again.");
               } finally {
                 setIsLoggingOut(false);
-                setOpen(false);
               }
             }}
             className="flex w-full items-center gap-2.5 rounded-2xl px-3 py-2 text-xs font-medium text-destructive hover:bg-destructive/10 transition-colors cursor-pointer text-left disabled:opacity-50 disabled:cursor-not-allowed"

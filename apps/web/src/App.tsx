@@ -5,6 +5,7 @@ import { AuthProvider } from "@/context/auth-context";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppShell } from "@/components/layout/app-shell";
 import { PageLoader } from "@/components/ui/page-loader";
+import { ErrorBoundary } from "@/components/ui/error-boundary";
 
 const LoginPage = lazy(() => import("@/pages/login-page").then((m) => ({ default: m.LoginPage })));
 const OverviewPage = lazy(() => import("@/pages/overview-page").then((m) => ({ default: m.OverviewPage })));
@@ -19,25 +20,27 @@ export function App() {
       <TooltipProvider>
         <AuthProvider>
           <BrowserRouter>
-            <Suspense fallback={<PageLoader />}>
-              <Routes>
-                {/* Public Auth Routes */}
-                <Route path="/login" element={<LoginPage />} />
+            <ErrorBoundary>
+              <Suspense fallback={<PageLoader />}>
+                <Routes>
+                  {/* Public Auth Routes */}
+                  <Route path="/login" element={<LoginPage />} />
 
-                {/* Authenticated Shell Routes */}
-                <Route path="/" element={<AppShell />}>
-                  <Route index element={<Navigate to="/overview" replace />} />
-                  <Route path="overview" element={<OverviewPage />} />
-                  <Route path="documents" element={<DocumentsPage />} />
-                  <Route path="shared" element={<SharedPage />} />
-                  <Route path="audit" element={<AuditPage />} />
-                  <Route path="admin" element={<AdminPage />} />
-                </Route>
+                  {/* Authenticated Shell Routes */}
+                  <Route path="/" element={<AppShell />}>
+                    <Route index element={<Navigate to="/overview" replace />} />
+                    <Route path="overview" element={<OverviewPage />} />
+                    <Route path="documents" element={<DocumentsPage />} />
+                    <Route path="shared" element={<SharedPage />} />
+                    <Route path="audit" element={<AuditPage />} />
+                    <Route path="admin" element={<AdminPage />} />
+                  </Route>
 
-                {/* Catch-all redirect */}
-                <Route path="*" element={<Navigate to="/overview" replace />} />
-              </Routes>
-            </Suspense>
+                  {/* Catch-all redirect */}
+                  <Route path="*" element={<Navigate to="/overview" replace />} />
+                </Routes>
+              </Suspense>
+            </ErrorBoundary>
           </BrowserRouter>
         </AuthProvider>
       </TooltipProvider>

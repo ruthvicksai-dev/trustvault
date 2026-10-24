@@ -28,7 +28,7 @@ export function OverviewPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
-  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [downloadingIds, setDownloadingIds] = useState<Set<string>>(new Set());
 
   const fetchOverview = async () => {
     setLoading(true);
@@ -49,13 +49,17 @@ export function OverviewPage() {
   }, []);
 
   const handleDownload = async (doc: DocumentItem) => {
-    setDownloadingId(doc.id);
+    setDownloadingIds((prev) => new Set(prev).add(doc.id));
     try {
       await documentsApi.download(doc.id, doc.title);
     } catch (err: any) {
       alert(`Download failed: ${err?.message || "Unknown error"}`);
     } finally {
-      setDownloadingId(null);
+      setDownloadingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(doc.id);
+        return next;
+      });
     }
   };
 
@@ -184,27 +188,30 @@ export function OverviewPage() {
           )}
 
           {loading ? (
-            <div className="space-y-2" aria-busy="true" role="status">
-              {[1, 2, 3].map((i) => (
-                <div
-                  key={i}
-                  className="flex items-center justify-between p-3.5 rounded-2xl border border-border bg-card gap-3"
-                  aria-hidden="true"
-                >
-                  <div className="flex items-center gap-3 min-w-0 flex-1">
-                    <Skeleton className="size-9 rounded-xl shrink-0" />
-                    <div className="space-y-1.5 min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <Skeleton className="h-4 w-40 sm:w-56 rounded-md" />
-                        <Skeleton className="h-3.5 w-16 rounded-full" />
-                        <Skeleton className="h-3.5 w-12 rounded-full" />
+            <div role="status">
+              <span className="sr-only">Loading recent documents…</span>
+              <div className="space-y-2" aria-busy="true" aria-hidden="true">
+                {[1, 2, 3].map((i) => (
+                  <div
+                    key={i}
+                    className="flex items-center justify-between p-3.5 rounded-2xl border border-border bg-card gap-3"
+                    aria-hidden="true"
+                  >
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <Skeleton className="size-9 rounded-xl shrink-0" />
+                      <div className="space-y-1.5 min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <Skeleton className="h-4 w-40 sm:w-56 rounded-md" />
+                          <Skeleton className="h-3.5 w-16 rounded-full" />
+                          <Skeleton className="h-3.5 w-12 rounded-full" />
+                        </div>
+                        <Skeleton className="h-3 w-48 rounded-md" />
                       </div>
-                      <Skeleton className="h-3 w-48 rounded-md" />
                     </div>
+                    <Skeleton className="h-7 w-20 rounded-lg shrink-0" />
                   </div>
-                  <Skeleton className="h-7 w-20 rounded-lg shrink-0" />
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           ) : recentDocs.length === 0 ? (
             <div className="p-8 text-center rounded-3xl border border-dashed border-border bg-card space-y-3">
@@ -264,10 +271,10 @@ export function OverviewPage() {
                       variant="outline"
                       size="xs"
                       onClick={() => handleDownload(doc)}
-                      disabled={downloadingId === doc.id}
-                      aria-busy={downloadingId === doc.id}
+                      disabled={downloadingIds.has(doc.id)}
+                      aria-busy={downloadingIds.has(doc.id)}
                     >
-                      {downloadingId === doc.id ? (
+                      {downloadingIds.has(doc.id) ? (
                         <>
                           <Spinner size="xs" className="mr-1.5" />
                           <span>Downloading…</span>

@@ -105,10 +105,13 @@ export function SharedPage() {
         )}
 
         {loading ? (
-          <div className="space-y-3" aria-busy="true" role="status">
-            {[1, 2, 3].map((i) => (
-              <DocumentRowSkeleton key={i} />
-            ))}
+          <div role="status">
+            <span className="sr-only">Loading shared documents…</span>
+            <div className="space-y-3" aria-busy="true" aria-hidden="true">
+              {[1, 2, 3].map((i) => (
+                <DocumentRowSkeleton key={i} />
+              ))}
+            </div>
           </div>
         ) : documents.length === 0 ? (
           <div className="p-12 text-center rounded-3xl border border-dashed border-border bg-card space-y-3">

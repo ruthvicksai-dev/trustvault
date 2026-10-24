@@ -18,9 +18,9 @@ function getSystemTheme(): ResolvedTheme {
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
-function getStoredTheme(): Theme {
+function getStoredTheme(): Theme | null {
   if (typeof window === "undefined") {
-    return "system";
+    return null;
   }
   try {
     const stored = localStorage.getItem(THEME_STORAGE_KEY);
@@ -30,7 +30,7 @@ function getStoredTheme(): Theme {
   } catch {
     // LocalStorage might be disabled or restricted in private browsing
   }
-  return "system";
+  return null;
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
@@ -43,11 +43,11 @@ export function ThemeProvider({
   defaultTheme?: Theme;
 }) {
   const [theme, setThemeState] = useState<Theme>(() => {
-    return getStoredTheme() || defaultTheme;
+    return getStoredTheme() ?? defaultTheme;
   });
 
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() => {
-    const initial = getStoredTheme() || defaultTheme;
+    const initial = getStoredTheme() ?? defaultTheme;
     return initial === "system" ? getSystemTheme() : initial;
   });
 

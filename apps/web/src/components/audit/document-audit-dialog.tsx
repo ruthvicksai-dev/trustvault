@@ -123,10 +123,13 @@ export function DocumentAuditDialog({
         )}
 
         {loading ? (
-          <div className="space-y-3 py-3" aria-busy="true" role="status">
-            {[1, 2, 3].map((i) => (
-              <AuditEventSkeleton key={i} />
-            ))}
+          <div role="status">
+            <span className="sr-only">Loading audit trail…</span>
+            <div className="space-y-3 py-3" aria-busy="true" aria-hidden="true">
+              {[1, 2, 3].map((i) => (
+                <AuditEventSkeleton key={i} />
+              ))}
+            </div>
           </div>
         ) : events.length === 0 ? (
           <div className="p-8 text-center text-xs text-muted-foreground bg-muted/30 rounded-3xl border border-border/50">

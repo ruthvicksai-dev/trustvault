@@ -242,9 +242,12 @@ export function ShareDialog({ document, open, onOpenChange }: ShareDialogProps) 
           </div>
 
           {loading ? (
-            <div className="space-y-2 py-1" aria-busy="true" role="status">
-              <Skeleton className="h-12 w-full rounded-2xl" />
-              <Skeleton className="h-12 w-full rounded-2xl" />
+            <div role="status">
+              <span className="sr-only">Loading access grants…</span>
+              <div className="space-y-2 py-1" aria-busy="true" aria-hidden="true">
+                <Skeleton className="h-12 w-full rounded-2xl" aria-hidden="true" />
+                <Skeleton className="h-12 w-full rounded-2xl" aria-hidden="true" />
+              </div>
             </div>
           ) : activeGrants.length === 0 ? (
             <div className="p-4 rounded-2xl bg-muted/30 border border-border/50 text-center text-xs text-muted-foreground">
