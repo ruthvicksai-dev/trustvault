@@ -18,7 +18,9 @@
     "test:integration": "npm run test:integration --workspace=apps/api",
     "typecheck:api": "npm run typecheck --workspace=apps/api",
     "typecheck:web": "npm run typecheck --workspace=apps/web",
-    "typecheck": "npm run typecheck:api && npm run typecheck:web"
+    "typecheck": "npm run typecheck:api && npm run typecheck:web",
+    "seed:demo": "npm run seed:demo --workspace=apps/api",
+    "seed:demo:reset": "npm run seed:demo:reset --workspace=apps/api"
   },
   "engines": {
     "node": ">=22"

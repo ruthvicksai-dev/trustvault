@@ -32,7 +32,7 @@ Traditional file-sharing tools suffer from three fundamental security risks:
 - **Row Level Security (RLS) Engine:** Declarative database policies enforcing default-deny on `users`, `documents`, `document_grants`, `audit_events`, and `sessions`. Tested and verified via 24 dedicated regression tests.
 - **Administrative User Management:** Complete admin-only user directory with parameterized search, role promotion/demotion (`admin`, `owner`, `viewer`), account disabling/re-enabling, self-demotion protection, last-admin protection, and instant multi-session revocation upon account disabling.
 - **Profile Metadata Editing:** Self-service display name customization (`PATCH /api/auth/profile`) with strict XSS sanitization, length boundaries (1–100 chars), and immutable audit trail logging.
-- **236 Passing Automated Tests:** Full test suite coverage across 18 test files (59 unit tests, 177 integration tests) verifying authentication, RLS, authorization, storage, admin governance, and profile lifecycle.
+- **255 Passing Automated Tests:** Full test suite coverage across 20 test files (70 unit tests, 185 integration tests) verifying authentication, RLS, centralized authorization, storage security, admin governance, profile lifecycle, and safe demo provisioning.
 
 ### Role & Permission Matrix
 
@@ -70,16 +70,17 @@ trustvault/
 ├── apps/
 │   ├── api/                     # Express 5 Backend REST API
 │   │   ├── src/
+│   │   │   ├── admin/           # Administrative user governance and roles
 │   │   │   ├── audit/           # Append-only audit service and routes
 │   │   │   ├── auth/            # Argon2id hashing, session middleware, CSRF
-│   │   │   ├── db/              # Pool configuration, fail-closed test guard
+│   │   │   ├── db/              # Pool, fail-closed guard, demo provisioning
 │   │   │   ├── documents/       # Centralized authorization, lifecycle, storage
 │   │   │   ├── app.ts           # Express application configuration
 │   │   │   ├── config.ts        # Environment schema and production assertions
 │   │   │   └── server.ts        # HTTP server entrypoint
 │   │   ├── tests/
-│   │   │   ├── integration/     # End-to-end API & RLS integration tests (155 tests)
-│   │   │   └── unit/            # Isolated in-memory unit tests (54 tests)
+│   │   │   ├── integration/     # End-to-end API & RLS integration tests (185 tests, 10 files)
+│   │   │   └── unit/            # Isolated in-memory unit tests (70 tests, 10 files)
 │   │   ├── Dockerfile           # Alpine container specification for API deployment
 │   │   └── package.json
 │   └── web/                     # React 19 + Vite Frontend SPA
@@ -89,13 +90,14 @@ trustvault/
 ├── docs/                        # Complete Technical Documentation
 │   ├── ARCHITECTURE.md          # System architecture, lifecycles, sequence diagrams
 │   ├── API.md                   # Complete REST API reference specification
+│   ├── CHALLENGE_COMPLIANCE_AUDIT.md # Hiring challenge compliance audit & interview defense
 │   ├── DATABASE.md              # Database schema, constraints, RLS policies
-│   ├── TESTING.md               # Testing guide, test database guards, test results
-│   ├── DEPLOYMENT.md            # Production deployment guide (Vercel, Railway, Supabase)
+│   ├── DEPLOYMENT.md            # Production deployment guide (Vercel, Render, Supabase)
 │   ├── SECURITY.md              # Security policy, checklist, responsible disclosure
+│   ├── TESTING.md               # Testing guide, test database guards, test results
 │   └── rls-audit-report.md      # Row Level Security implementation and audit report
 ├── supabase/
-│   └── migrations/              # Declarative SQL schema and RLS migrations
+│   └── migrations/              # Declarative SQL schema, RLS, and profile migrations
 ├── docker-compose.yml           # Runs trustvault-api container (Note: No DB container)
 ├── package.json                 # Root monorepo manifest and npm scripts
 ├── PROMPTS.md                   # Chronological development log and phase history
@@ -176,18 +178,137 @@ Access the application in your browser at: **`http://localhost:5173`**. The Vite
 
 ---
 
-## 7. Testing & Verification
+## 7. Demo Access & Evaluator Guide
+
+To facilitate transparent and reproducible evaluation of TrustVault's role-based access control and tamper-resistant audit logging, dedicated demo identities and synthetic evaluation scenarios are available.
+
+> [!IMPORTANT]
+> **Safety & Integrity Invariants:**
+> - **Disabled by default:** Demo account provisioning is strictly disabled unless explicitly activated via `ENABLE_DEMO_ACCOUNTS=true`.
+> - **Zero hardcoded credentials:** Passwords must be supplied via secure environment variables (`DEMO_*_PASSWORD`). Passwords are never committed to Git, logged to console, or included in client bundles.
+> - **Argon2id hashing:** All demo credentials are safe-hashed using the application's calibrated Argon2id implementation.
+> - **Idempotent & non-destructive:** Running provisioning multiple times never creates duplicate accounts, never overwrites existing user passwords, and never alters existing user roles.
+> - **Isolated synthetic data:** Only fictional documents and synthetic accounts (`*.local` / `*.test`) are seeded. Live user data and storage buckets remain strictly isolated.
+
+### Demo Credentials for Immediate Evaluation
+
+Evaluators can immediately log in with the following pre-configured demo credentials:
+
+| Role | Email Address | Password | Intended Demonstrations & Evaluation Scope |
+|:---|:---|:---|:---|
+| **Admin** | `admin@trustvault.local` | `AdminDemo2026!` | • **User Governance:** Inspect registered users via `/admin`, search by email/name, promote/demote roles (`admin`, `owner`, `viewer`), and toggle account status (`active` / `disabled`).<br>• **Session Revocation:** Disabling a user immediately terminates all active sessions.<br>• **Global Audit Oversight:** Inspect system-wide security audit events via `/audit`.<br>• **Least Privilege:** Administrators have **zero implicit access** to document contents unless explicitly granted. |
+| **Owner** | `owner@trustvault.local` | `OwnerDemo2026!` | • **Document Ownership:** Upload confidential PDF/PNG documents via `/documents`.<br>• **Access Delegation:** Grant granular permissions (`read` or `edit`) to other users.<br>• **Immediate Revocation:** Revoke access grants instantly.<br>• **Document Audit Trail:** Inspect the tamper-resistant event trail for owned documents. |
+| **Viewer** | `viewer@trustvault.local` | `ViewerDemo2026!` | • **Permitted Document Access:** View and download documents explicitly shared by owners.<br>• **Upload Forbidden:** Verifies that viewers cannot upload documents (`HTTP 403 Forbidden`).<br>• **Anti-IDOR & Tenant Isolation:** Verifies that unshared documents belonging to other users return `HTTP 404 Not Found` (preventing resource enumeration).<br>• **Immediate Access Denial:** Verifies that revoked documents immediately return `HTTP 404 Not Found` with zero caching delay. |
+
+### Quick Provisioning Command
+
+To populate or refresh these demo accounts and realistic evaluation scenarios on your database, simply run:
+
+```bash
+npm run seed:demo
+```
+
+*(Pre-configured defaults `AdminDemo2026!`, `OwnerDemo2026!`, and `ViewerDemo2026!` are embedded automatically for zero-friction evaluation. Custom passwords can still be supplied via `DEMO_*_PASSWORD` environment variables).*
+
+### Environment Configuration Variables
+
+The provisioning engine ([`apps/api/src/db/provision-demo.ts`](file:///c:/Users/ruthv/Projects/trustvault/apps/api/src/db/provision-demo.ts)) requires the following environment variables:
+
+| Environment Variable | Required | Default | Description |
+|:---|:---:|:---:|:---|
+| `ENABLE_DEMO_ACCOUNTS` | **Yes** | `false` | Master safety switch. Must be explicitly set to `true` to permit demo provisioning. |
+| `DEMO_ADMIN_PASSWORD` | **Yes** | *None* | Secure password for the demo admin account (minimum 12 characters). |
+| `DEMO_OWNER_PASSWORD` | **Yes** | *None* | Secure password for the demo owner account (minimum 12 characters). |
+| `DEMO_VIEWER_PASSWORD` | **Yes** | *None* | Secure password for the demo viewer account (minimum 12 characters). |
+| `DEMO_ADMIN_EMAIL` | Optional | `admin@trustvault.local` | Email address for the synthetic admin account. |
+| `DEMO_OWNER_EMAIL` | Optional | `owner@trustvault.local` | Email address for the synthetic owner account. |
+| `DEMO_VIEWER_EMAIL` | Optional | `viewer@trustvault.local` | Email address for the synthetic viewer account. |
+| `DEMO_ENV_CONFIRMATION` | Production Only | `false` | Required confirmation flag when executing provisioning against a production environment (`NODE_ENV=production`). |
+
+### Local Provisioning Instructions
+
+To provision demo accounts and realistic evaluation scenarios on your local development database:
+
+#### Windows PowerShell:
+```powershell
+# Set configuration variables for the current session (minimum 12 character passwords)
+$env:ENABLE_DEMO_ACCOUNTS="true"
+$env:DEMO_ADMIN_PASSWORD="DemoAdminPassword123!"
+$env:DEMO_OWNER_PASSWORD="DemoOwnerPassword123!"
+$env:DEMO_VIEWER_PASSWORD="DemoViewerPassword123!"
+
+# Execute the idempotent provisioning script
+npm run seed:demo
+```
+
+#### Linux / macOS Bash:
+```bash
+ENABLE_DEMO_ACCOUNTS=true \
+DEMO_ADMIN_PASSWORD="DemoAdminPassword123!" \
+DEMO_OWNER_PASSWORD="DemoOwnerPassword123!" \
+DEMO_VIEWER_PASSWORD="DemoViewerPassword123!" \
+npm run seed:demo
+```
+
+### Pre-Configured Synthetic Scenarios
+
+Running `npm run seed:demo` provisions three realistic, fictional document scenarios:
+
+1. **Document 1 (Active Shared Access):**
+   *Title:* `Confidential_Q4_Financial_Audit_Report.pdf` (Category: `Finance`)
+   *State:* Owned by Owner; active `read` grant assigned to Viewer.
+   *Evaluator Action:* Log in as Viewer; verify document appears in "Shared with Me" and downloads successfully.
+2. **Document 2 (Tenant Isolation / Anti-IDOR):**
+   *Title:* `Internal_Executive_Compensation_2026.pdf` (Category: `Executive`)
+   *State:* Owned by Owner; **zero grants** assigned to Viewer.
+   *Evaluator Action:* Log in as Viewer; attempt direct access by ID. Verify server returns uniform `HTTP 404 Not Found` (anti-enumeration).
+3. **Document 3 (Immediate Revocation Demonstration):**
+   *Title:* `Third_Party_Vendor_Risk_Assessment.pdf` (Category: `Compliance`)
+   *State:* Owned by Owner; grant previously granted to Viewer has been **revoked** (`revoked_at` is set).
+   *Evaluator Action:* Log in as Viewer; verify document is inaccessible and returns `HTTP 404 Not Found`.
+
+All actions generate authentic, append-only events (`create_document`, `create_grant`, `revoke_grant`, `read_content`) recorded via `recordAuditEvent()` with genuine actor attribution.
+
+### Resetting Demo Data Safely
+
+If you wish to purge synthetic demo data and restore a clean state without modifying real users or documents:
+
+#### Windows PowerShell:
+```powershell
+$env:ENABLE_DEMO_ACCOUNTS="true"
+$env:DEMO_ADMIN_PASSWORD="DemoAdminPassword123!"
+$env:DEMO_OWNER_PASSWORD="DemoOwnerPassword123!"
+$env:DEMO_VIEWER_PASSWORD="DemoViewerPassword123!"
+npm run seed:demo:reset
+```
+
+The reset engine targets **only** the synthetic email addresses (`admin@trustvault.local`, `owner@trustvault.local`, `viewer@trustvault.local` or custom configured demo emails) and documents with `demo-*` storage keys. Real non-demo users, real documents, and authentic audit logs are preserved untouched.
+
+### Live Evaluation Deployment Access
+
+> [!NOTE]
+> **Live Deployment Status:**
+> The public GitHub repository is available at `https://github.com/ruthvicksai-dev/trustvault`. Deployment of the live website is performed by the candidate prior to hiring evaluation.
+>
+> If demo accounts are configured on a live evaluation deployment:
+> 1. Passwords must be configured as private environment secrets in the hosting dashboard (e.g., Render environment variables) with `ENABLE_DEMO_ACCOUNTS=true` and `DEMO_ENV_CONFIRMATION=true`.
+> 2. Passwords should be temporary, unique, and rotated or disabled after the hiring challenge evaluation concludes by removing `ENABLE_DEMO_ACCOUNTS` or running the safe reset script.
+> 3. **Safer Alternative (No Pre-Existing Public Credentials):** Evaluators may register their own clean account via the live registration page (`/login`, tab "Register"). Evaluators will automatically receive the `viewer` role. An administrator can then promote the evaluator's account to `owner` or `admin` via the Admin Dashboard (`/admin`), providing a 100% verified evaluation path without needing shared demo passwords.
+
+---
+
+## 8. Testing & Verification
 
 TrustVault includes a comprehensive, verified test suite with zero external dependencies required for unit testing.
 
 ```powershell
-# Run the entire test suite (214 automated tests)
+# Run the entire test suite (255 automated tests across 20 test files)
 npm test
 
-# Run isolated in-memory unit tests (no database required)
+# Run isolated in-memory unit tests (no database required - 70 tests across 10 files)
 npm run test:unit
 
-# Run full integration and RLS regression tests (requires test database)
+# Run full integration and RLS regression tests (requires test database - 185 tests across 10 files)
 npm run test:integration
 
 # Typecheck both API and Web workspaces
@@ -201,7 +322,7 @@ npm run build
 TrustVault features an automated GitHub Actions CI pipeline ([`.github/workflows/ci.yml`](file:///c:/Users/ruthv/Projects/trustvault/.github/workflows/ci.yml)) that runs on every push and pull request to `master`:
 - **Triggers:** Pushes and PRs targeting `master`, plus manual dispatch.
 - **Isolated Service Container:** Ephemeral `postgres:16-alpine` service container with a dedicated `trustvault_test` database.
-- **Automated Validation:** Validates `npm ci`, dependency tree sanity (`npm ls --depth=0`), full TypeScript typecheck (`npm run typecheck`), production builds (`npm run build`), automated test migration (`npm run db:migrate:test`), and the complete 214-test suite.
+- **Automated Validation:** Validates `npm ci`, dependency tree sanity (`npm ls --depth=0`), full TypeScript typecheck (`npm run typecheck`), production builds (`npm run build`), automated test migration (`npm run db:migrate:test`), and the complete 255-test suite.
 - **Zero Production Exposure:** Tests execute in memory or against disposable containers with zero production Supabase access or secret leakage.
 
 ### Test Database Configuration & Fail-Closed Guard
@@ -219,9 +340,9 @@ To execute database integration tests locally:
 
 ---
 
-## 8. Deployment Overview
+## 9. Deployment Overview
 
-- **Backend API:** Packaged via [`apps/api/Dockerfile`](file:///c:/Users/ruthv/Projects/trustvault/apps/api/Dockerfile) and ready for deployment to **Railway** or any container runtime.
+- **Backend API:** Packaged via [`apps/api/Dockerfile`](file:///c:/Users/ruthv/Projects/trustvault/apps/api/Dockerfile) and ready for deployment to **Render** or any container runtime.
 - **Frontend SPA:** Built via `npm run build:web` and optimized for static edge deployment on **Vercel**.
 - **PostgreSQL & Storage:** Hosted on **Supabase** with private bucket isolation (`trustvault-private`).
 
@@ -229,7 +350,7 @@ For complete, step-by-step production deployment instructions, safe environment 
 
 ---
 
-## 9. Troubleshooting & FAQ
+## 10. Troubleshooting & FAQ
 
 ### 1. `docker-compose.yml` does not start PostgreSQL
 - **Explanation:** The repository's `docker-compose.yml` specifies only the `trustvault-api` container service. It does not spin up a database. You must provide a running PostgreSQL instance (local or Supabase) and supply its URI in `DATABASE_URL`.
@@ -240,12 +361,12 @@ For complete, step-by-step production deployment instructions, safe environment 
 ### 3. Integration tests fail: "FATAL TEST DATABASE SAFETY GUARD TRIGGERED"
 - **Explanation:** The test database URI does not contain the word `test`. Change the database name in `TEST_DATABASE_URL` to `trustvault_test` to protect real data from accidental deletion.
 
-### 4. Railway Free Tier Notice
-- **Explanation:** Free or starter tiers on Railway may spin down idle containers. When testing on free tiers, allow 15–30 seconds for container cold starts on the first request.
+### 4. Render Free Tier Notice
+- **Explanation:** Free web services on Render may spin down after 15 minutes of inactivity. When testing on free tiers, allow 30–50 seconds for container cold starts on the first request.
 
 ---
 
-## 10. Complete Documentation Index
+## 11. Complete Documentation Index
 
 For in-depth technical analysis, consult the dedicated documentation files:
 
@@ -253,9 +374,11 @@ For in-depth technical analysis, consult the dedicated documentation files:
 |:---|:---|
 | [`docs/ARCHITECTURE.md`](file:///c:/Users/ruthv/Projects/trustvault/docs/ARCHITECTURE.md) | Architectural design, component responsibilities, trust boundaries, lifecycle sequence diagrams, and invariants. |
 | [`docs/API.md`](file:///c:/Users/ruthv/Projects/trustvault/docs/API.md) | Exhaustive REST API specification with request schemas, responses, status codes, and authorization rules. |
+| [`docs/CHALLENGE_COMPLIANCE_AUDIT.md`](file:///c:/Users/ruthv/Projects/trustvault/docs/CHALLENGE_COMPLIANCE_AUDIT.md) | Complete hiring challenge compliance audit, 26-requirement matrix, gap analysis, and technical interview defense guide. |
 | [`docs/DATABASE.md`](file:///c:/Users/ruthv/Projects/trustvault/docs/DATABASE.md) | Complete PostgreSQL schema, constraints, indexes, RLS policies, and database connection role analysis. |
-| [`docs/TESTING.md`](file:///c:/Users/ruthv/Projects/trustvault/docs/TESTING.md) | Comprehensive testing guide, fail-closed guards, test organization, and verified 214 passing tests. |
-| [`docs/DEPLOYMENT.md`](file:///c:/Users/ruthv/Projects/trustvault/docs/DEPLOYMENT.md) | Production deployment guide for Vercel, Railway, and Supabase with safe environment variable references. |
+| [`docs/TESTING.md`](file:///c:/Users/ruthv/Projects/trustvault/docs/TESTING.md) | Comprehensive testing guide, fail-closed guards, test organization, and verified passing test breakdown. |
+| [`docs/DEPLOYMENT.md`](file:///c:/Users/ruthv/Projects/trustvault/docs/DEPLOYMENT.md) | Production deployment guide for Vercel, Render, and Supabase with safe environment variable references. |
 | [`docs/SECURITY.md`](file:///c:/Users/ruthv/Projects/trustvault/docs/SECURITY.md) | Operational security guidelines, secret management standards, checklist, and responsible disclosure. |
+| [`docs/rls-audit-report.md`](file:///c:/Users/ruthv/Projects/trustvault/docs/rls-audit-report.md) | Row Level Security (RLS) policies, bypass role analysis, and 24 RLS integration tests report. |
 | [`THREATS.md`](file:///c:/Users/ruthv/Projects/trustvault/THREATS.md) | Comprehensive security threat model, threat matrices (Phases 4–9), and architectural residual risk analysis. |
 | [`PROMPTS.md`](file:///c:/Users/ruthv/Projects/trustvault/PROMPTS.md) | Chronological development log, technical decisions, and phase-by-phase implementation history. |

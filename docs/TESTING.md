@@ -9,29 +9,31 @@ This document details the test architecture, test suite organization, environmen
 TrustVault features a layered automated test suite developed with **Vitest 3** and **Supertest**. Tests are divided into isolated unit tests (which run in-memory without database access) and end-to-end integration tests (which execute against an isolated PostgreSQL test database).
 
 ### Current Verification Status (Verified October 24, 2026)
-- **Total Test Files:** 18 passed (18)
-- **Total Automated Tests:** 236 passed (236)
+- **Total Test Files:** 20 passed (20)
+- **Total Automated Tests:** 255 passed (255)
 - **Failures / Skipped Tests:** 0
 - **TypeScript Typecheck:** 0 errors across API and Web workspaces
 - **Production Build:** 100% clean compilation for API (`tsc`) and Web (`vite build`)
 
 ```
 Test Distribution:
-├── Unit Test Suites (9 files, 59 tests)
+├── Unit Test Suites (10 files, 70 tests)
 │   ├── apply-test-migration.test.ts (5 tests)
 │   ├── argon2.test.ts (10 tests)
 │   ├── cookie-security.test.ts (1 test)
 │   ├── csrf.test.ts (8 tests)
+│   ├── demo-provisioning.test.ts (11 tests)
 │   ├── file-validator.test.ts (13 tests)
 │   ├── guard.test.ts (9 tests)
 │   ├── health.test.ts (2 tests)
 │   ├── reconciliation.test.ts (5 tests)
 │   └── sanitizer.test.ts (6 tests)
-└── Integration Test Suites (9 files, 177 tests)
+└── Integration Test Suites (10 files, 185 tests)
     ├── admin.test.ts (15 tests)
     ├── audit.test.ts (14 tests)
     ├── auth.test.ts (20 tests)
     ├── authorization.test.ts (23 tests)
+    ├── demo-provisioning.test.ts (8 tests)
     ├── lifecycle.test.ts (47 tests)
     ├── profile.test.ts (7 tests)
     ├── rate-limit.test.ts (2 tests)

@@ -40,6 +40,8 @@
     "test:integration": "vitest run tests/integration",
     "typecheck": "tsc --noEmit",
     "db:check": "tsx src/db/check-connection.ts",
-    "db:migrate:test": "tsx src/db/apply-test-migration.ts"
+    "db:migrate:test": "tsx src/db/apply-test-migration.ts",
+    "seed:demo": "tsx src/db/provision-demo.ts",
+    "seed:demo:reset": "tsx src/db/provision-demo.ts --reset"
   }
 }

@@ -15,7 +15,7 @@ TrustVault is composed of four production components:
                │ HTTPS (Cookies, CSRF Token)
                ▼
 ┌─────────────────────────────────┐       ┌─────────────────────────────────┐
-│   Frontend SPA (Vercel)         │       │   Backend API (Railway)         │
+│   Frontend SPA (Vercel)         │       │   Backend API (Render)          │
 │   • React 19 + Vite 6           │──────▶│   • Node.js 22 + Express 5      │
 │   • Static Edge CDN             │       │   • apps/api/Dockerfile         │
 └─────────────────────────────────┘       └───────┬─────────────────┬───────┘
@@ -31,7 +31,7 @@ TrustVault is composed of four production components:
 ```
 
 1. **Frontend Web Application:** Deployed to **Vercel** as a static Single-Page Application (SPA).
-2. **Backend API Service:** Deployed to **Railway** as a containerized Node.js service using [`apps/api/Dockerfile`](file:///c:/Users/ruthv/Projects/trustvault/apps/api/Dockerfile).
+2. **Backend API Service:** Deployed to **Render** as a containerized Web Service using [`apps/api/Dockerfile`](file:///c:/Users/ruthv/Projects/trustvault/apps/api/Dockerfile).
 3. **Primary Database:** **Supabase PostgreSQL** (or self-hosted PostgreSQL 15+) for relational data, session storage, and append-only audit events.
 4. **Private Document Storage:** **Supabase Storage** with a dedicated private bucket (`trustvault-private`).
 
@@ -59,23 +59,29 @@ TrustVault is composed of four production components:
 
 ---
 
-### B. Backend API Deployment (Railway)
+### B. Backend API Deployment (Render)
 The backend is packaged via Docker in a monorepo setup.
 
-1. **Create New Project on Railway:**
-   - Select **Deploy from GitHub repo**.
-   - Choose the `trustvault` repository.
+1. **Create New Web Service on Render:**
+   - Log in to your [Render Dashboard](https://dashboard.render.com).
+   - Click **New +** and select **Web Service**.
+   - Connect your GitHub repository (`trustvault`).
 2. **Configure Service Settings:**
-   - **Root Directory:** Leave as `/` (repository root context is required by `COPY apps/api/package.json ./apps/api/package.json`).
-   - **Dockerfile Path:** `apps/api/Dockerfile`
-   - **Port:** `4000` (or Railway's `$PORT`).
-3. **Configure Health Check:**
-   - **Healthcheck Path:** `/health`
-   - **Healthcheck Timeout:** 10 seconds.
-4. **Configure Environment Variables (See Section 3).**
+   - **Name:** `trustvault-api` (or your chosen service name).
+   - **Language / Runtime:** `Docker`.
+   - **Branch:** `master`.
+   - **Region:** Select a region close to your Supabase database.
+   - **Root Directory:** Leave blank or set to `.` (repository root context is required by `COPY apps/api/package.json ./apps/api/package.json`).
+   - **Dockerfile Path:** `./apps/api/Dockerfile`.
+   - **Docker Context:** `.` (repository root).
+3. **Configure Health Check & Port:**
+   - **Health Check Path:** `/health`.
+   - Render automatically routes HTTP traffic to port `4000` (or Render's `$PORT`).
+4. **Configure Environment Variables (See Section 3):**
+   - Add all required backend environment variables under the **Environment** tab.
 
 > [!NOTE]
-> **Railway Free Tier Considerations:** Railway's trial/starter tier provides ephemeral execution credits and will put inactive containers to sleep. For continuous availability and predictable rate limiting, ensure adequate credits or deploy to an always-on paid container tier.
+> **Render Free Tier Notice:** Render's free tier spins down inactive web services after 15 minutes of inactivity. When testing on free tiers, allow 30–50 seconds for container cold starts on the first request. For evaluation or continuous uptime, consider keeping the service active or using a paid instance.
 
 ---
 
@@ -91,7 +97,7 @@ The web client is a Vite-based SPA.
    - **Output Directory:** `dist`
    - **Install Command:** `npm install`
 3. **SPA Routing Configuration:**
-   Add a `vercel.json` in `apps/web` (or configure via project settings) to ensure client-side routing works for direct URLs (e.g. `/documents`, `/overview`, `/admin`):
+   A [`vercel.json`](file:///c:/Users/ruthv/Projects/trustvault/apps/web/vercel.json) file is included in `apps/web` to ensure client-side routing works for direct URLs (e.g. `/documents`, `/overview`, `/admin`):
    ```json
    {
      "rewrites": [
@@ -100,31 +106,36 @@ The web client is a Vite-based SPA.
    }
    ```
 4. **Configure Environment Variables:**
-   - `VITE_API_URL`: Set to your production Railway backend domain (e.g. `https://trustvault-api-production.up.railway.app`).
+   - `VITE_API_URL`: Set to your production Render backend domain (e.g. `https://trustvault-api.onrender.com`).
 
 ---
 
 ## 3. Environment Variables Reference
 
-### Backend API Variables (`apps/api`)
+### Backend API Variables (`apps/api` on Render)
 
 | Variable Name | Required | Example / Safe Placeholder | Purpose & Security Constraints |
 |:---|:---|:---|:---|
 | `NODE_ENV` | **Yes** | `production` | Enables strict security assertions, cookie hardening (`__Host-` prefix, `Secure`), and stack trace suppression. |
-| `PORT` | Optional | `4000` | HTTP port for Express server (default `4000`). Injected automatically by Railway. |
+| `PORT` | Optional | `4000` | HTTP port for Express server (default `4000`). Render injects `$PORT` automatically. |
 | `DATABASE_URL` | **Yes** | `postgresql://postgres.[ref]:[PASSWORD]@aws-0-[region].pooler.supabase.com:6543/postgres?sslmode=require` | Connection string to authoritative PostgreSQL database. Must have credentials protected. |
 | `SUPABASE_URL` | **Yes** | `https://[PROJECT-ID].supabase.co` | Base URL of Supabase project. |
 | `SUPABASE_SECRET_KEY` | **Yes** | `eyJh...[SERVICE_ROLE_KEY]` | Privileged Supabase service-role secret key. Must NEVER be exposed to the client or committed to git. |
 | `SUPABASE_STORAGE_BUCKET` | Optional | `trustvault-private` | Private storage bucket name (defaults to `trustvault-private`). |
 | `FRONTEND_ORIGIN` | **Yes** | `https://trustvault.vercel.app` | Exact production frontend URL. Used for CORS allowlist and CSRF Origin validation. Wildcards forbidden. |
 | `SESSION_SECRET` | **Yes** | `c8f1e9b2a7d4c6e8f0a2b4d6e8c0a2b4d6e8f0a2b4c6e8d0` | Random string with **at least 32 characters of entropy**. The server will crash on boot if shorter than 32 chars in production. |
-| `TRUST_PROXY` | **Yes** | `1` | Enables Express proxy trust (`1` or `true`) when running behind Railway's reverse proxy, ensuring correct protocol detection for secure cookies. |
+| `TRUST_PROXY` | **Yes** | `1` | Enables Express proxy trust (`1` or `true`) when running behind Render's reverse proxy, ensuring correct protocol detection for secure cookies. |
+| `ENABLE_DEMO_ACCOUNTS` | Optional | `true` | Required if provisioning evaluator demo accounts on the evaluation deployment. |
+| `DEMO_ADMIN_PASSWORD` | Optional | `your_secure_admin_password_min_12_chars` | Password for synthetic demo admin account ($\ge 12$ chars). |
+| `DEMO_OWNER_PASSWORD` | Optional | `your_secure_owner_password_min_12_chars` | Password for synthetic demo owner account ($\ge 12$ chars). |
+| `DEMO_VIEWER_PASSWORD` | Optional | `your_secure_viewer_password_min_12_chars` | Password for synthetic demo viewer account ($\ge 12$ chars). |
+| `DEMO_ENV_CONFIRMATION` | Production Only | `true` | Required confirmation flag when executing demo provisioning against production (`NODE_ENV=production`). |
 
-### Frontend Variables (`apps/web`)
+### Frontend Variables (`apps/web` on Vercel)
 
 | Variable Name | Required | Example Placeholder | Purpose |
 |:---|:---|:---|:---|
-| `VITE_API_URL` | Optional | `https://trustvault-api-production.up.railway.app` | Base URL of production backend API if not using reverse-proxy path routing. |
+| `VITE_API_URL` | Optional | `https://trustvault-api.onrender.com` | Base URL of production backend API on Render if not using reverse-proxy path routing. |
 
 ---
 
@@ -136,7 +147,7 @@ In production (`NODE_ENV=production`), the session middleware activates maximum 
 - **`Secure` Flag:** Enforced. Browsers will only transmit the cookie over HTTPS.
 - **`HttpOnly` Flag:** Enforced. Prevents client-side scripts from reading the session cookie.
 - **`SameSite=Lax`:** Mitigates cross-site request forgery.
-- **`TRUST_PROXY=1`:** Because Railway terminates TLS at its reverse proxy, setting `TRUST_PROXY=1` ensures Express recognizes the forwarded `X-Forwarded-Proto: https` header and does not reject or downgrade secure cookies.
+- **`TRUST_PROXY=1`:** Because Render terminates TLS at its edge reverse proxy, setting `TRUST_PROXY=1` ensures Express recognizes the forwarded `X-Forwarded-Proto: https` header and does not reject or downgrade secure cookies.
 
 ### 2. CORS & CSRF Allowlist
 - Cross-Origin Resource Sharing (`CORS`) validates incoming `Origin` against `FRONTEND_ORIGIN`. If an unauthorized domain makes a request with credentials, CORS headers are omitted.
@@ -157,12 +168,12 @@ After deploying the services, execute this smoke test sequence:
 
 1. **Health Probe:**
    ```bash
-   curl -i https://your-api.railway.app/health
+   curl -i https://your-api.onrender.com/health
    ```
    *Expected:* HTTP `200 OK` with `{"status": "ok", "service": "trustvault-api"}`.
 2. **CSRF Token Fetch:**
    ```bash
-   curl -i https://your-api.railway.app/api/auth/csrf-token
+   curl -i https://your-api.onrender.com/api/auth/csrf-token
    ```
    *Expected:* HTTP `200 OK` returning `{"csrfToken": "..."}`.
 3. **Database Connectivity:**
@@ -182,15 +193,15 @@ After deploying the services, execute this smoke test sequence:
 
 ### 1. Server Exits on Startup: "CRITICAL SECURITY ERROR: SESSION_SECRET must be set and provide at least 32 characters"
 - **Cause:** `SESSION_SECRET` is missing or has fewer than 32 characters.
-- **Fix:** Generate a secure random string (e.g. `openssl rand -hex 32`) and update the environment variable in Railway.
+- **Fix:** Generate a secure random string (e.g. `openssl rand -hex 32`) and update the environment variable in Render.
 
 ### 2. Frontend Receives 401 Unauthorized Immediately After Login
 - **Cause:** Secure cookie is not being stored by browser because `TRUST_PROXY` is `false` or connection is plain HTTP.
-- **Fix:** Ensure `TRUST_PROXY=1` is set in Railway and both frontend and backend are accessed over `https://`.
+- **Fix:** Ensure `TRUST_PROXY=1` is set in Render and both frontend and backend are accessed over `https://`.
 
 ### 3. CORS Error in Browser Console
 - **Cause:** `FRONTEND_ORIGIN` does not match the exact URL of the Vercel frontend (including protocol and port, without trailing slash).
-- **Fix:** Update `FRONTEND_ORIGIN` in Railway to match your exact Vercel domain (e.g. `https://trustvault.vercel.app`).
+- **Fix:** Update `FRONTEND_ORIGIN` in Render to match your exact Vercel domain (e.g. `https://trustvault.vercel.app`).
 
 ### 4. Database Connection Pool Exhaustion
 - **Cause:** Serverless or ephemeral containers opening too many concurrent connections to Supabase.

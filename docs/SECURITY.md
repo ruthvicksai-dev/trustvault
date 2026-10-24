@@ -14,7 +14,7 @@ For the threat matrix, attack scenarios, and mitigated threat IDs, refer to [`TH
    - Any client code, local storage, memory, or HTTP headers can be inspected or modified by the user or malicious browser extensions.
    - **Rule:** The server never relies on the client to perform authorization, validate file types, enforce role restrictions, or check grant validity.
 2. **Reverse Proxy / Edge (Semi-Trusted):**
-   - When deployed behind Railway, Vercel, or AWS Application Load Balancers, TLS is terminated at the edge.
+   - When deployed behind Render, Vercel, or AWS Application Load Balancers, TLS is terminated at the edge.
    - The Express application relies on forwarded headers (`X-Forwarded-Proto`, `X-Forwarded-For`) only when `TRUST_PROXY=1` is explicitly configured for known infrastructure.
 3. **Application Server (Trusted):**
    - The Node.js Express process holds application secrets (`SESSION_SECRET`, `SUPABASE_SECRET_KEY`).

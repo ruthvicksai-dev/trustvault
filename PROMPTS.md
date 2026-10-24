@@ -378,8 +378,8 @@ Inspect the entire repository, implement complete technical documentation in `do
    - Documented unit vs integration test organization (8 unit suites with 54 tests; 7 integration suites with 155 tests; 209 total passing).
    - Documented exact npm package scripts, fail-closed database safety guard (`apps/api/src/db/guard.ts`), `.env.test` configuration, and troubleshooting procedures.
 5. **Authored [`docs/DEPLOYMENT.md`](file:///c:/Users/ruthv/Projects/trustvault/docs/DEPLOYMENT.md):**
-   - Created practical production deployment guide for Vercel (Frontend SPA rewrite), Railway (API container via `apps/api/Dockerfile`), and Supabase (PostgreSQL + private Storage bucket `trustvault-private`).
-   - Documented safe environment variable templates, cookie hardening (`__Host-trustvault.sid`), CORS/CSRF configurations, and Railway free-tier limitations.
+   - Created practical production deployment guide for Vercel (Frontend SPA rewrite), Render (API container via `apps/api/Dockerfile`), and Supabase (PostgreSQL + private Storage bucket `trustvault-private`).
+   - Documented safe environment variable templates, cookie hardening (`__Host-trustvault.sid`), CORS/CSRF configurations, and Render free-tier limitations.
 6. **Authored [`docs/SECURITY.md`](file:///c:/Users/ruthv/Projects/trustvault/docs/SECURITY.md):**
    - Created operational security guide detailing trust boundaries, secret management standards, database role hardening roadmap (`trustvault_app` role), pre-flight security checklist, and responsible vulnerability disclosure policy.
 7. **Updated [`README.md`](file:///c:/Users/ruthv/Projects/trustvault/README.md):**
@@ -435,4 +435,3 @@ Inspect the repository and implement a reliable GitHub Actions CI pipeline (`.gi
 - Record genuine AI prompts, contributions, and corrections.
 - Include actual verification results; never invent successful tests.
 - Add entries for later phases, including at least two genuine entries about authentication and audit logging.
-

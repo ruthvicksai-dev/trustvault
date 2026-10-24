@@ -12,7 +12,7 @@
 A comprehensive compliance audit of the TrustVault repository was conducted against the full SNOVASYS fresher hiring challenge requirements.
 
 ### Current Architectural State
-TrustVault is a TypeScript monorepo providing secure document sharing with per-document authorization and an append-only audit trail. The core technical requirements—real server-enforced roles and permissions, private file storage via Supabase Storage, defense-in-depth Row Level Security (RLS) in PostgreSQL, Argon2id authentication, rate limiting, CSRF synchronizer tokens, administrative user governance, profile metadata editing, and an append-only audit trail—are implemented, verified, and backed by **236 automated regression tests** (59 unit tests and 177 integration tests across 18 test files). Both TypeScript typechecking (`npm run typecheck`) and production builds (`npm run build`) pass cleanly with 0 errors.
+TrustVault is a TypeScript monorepo providing secure document sharing with per-document authorization and an append-only audit trail. The core technical requirements—real server-enforced roles and permissions, private file storage via Supabase Storage, defense-in-depth Row Level Security (RLS) in PostgreSQL, Argon2id authentication, rate limiting, CSRF synchronizer tokens, administrative user governance, profile metadata editing, and an append-only audit trail—are implemented, verified, and backed by **255 automated regression tests** (70 unit tests and 185 integration tests across 20 test files). Both TypeScript typechecking (`npm run typecheck`) and production builds (`npm run build`) pass cleanly with 0 errors.
 
 ### Most Important Security Findings & Reality Checks
 1. **API Database Role Bypasses Database-Level RLS (Architectural Reality):**  
@@ -24,10 +24,10 @@ TrustVault is a TypeScript monorepo providing secure document sharing with per-d
 4. **Missing Date & Owner Filter Parameters in API:**  
    The API supports parameterized search by title (`?search=`) and category (`?category=`), but date range and owner filter query parameters are not implemented at the HTTP API level (the frontend performs client-side partition for "Shared with Me" and "My Document Audits").
 5. **Deployment Status (Submission Blocker):**  
-   The **public GitHub repository** is verified on branch `master`. However, the **live deployed website is UNVERIFIED** because no active production deployment URL or cloud hosting credentials exist in the local workspace. A manual deployment to Vercel (frontend) and Railway (backend) must be executed by the developer before final submission.
+   The **public GitHub repository** is verified on branch `master`. However, the **live deployed website is UNVERIFIED** because no active production deployment URL or cloud hosting credentials exist in the local workspace. A manual deployment to Vercel (frontend) and Render (backend) must be executed by the developer before final submission.
 
 ### Final Readiness Verdict: **CONDITIONAL PASS — PENDING LIVE DEPLOYMENT & MANUAL SMOKE TEST**
-The repository satisfies the core security, authorization, audit trail, testing, and architectural requirements of the challenge. The candidate must deploy the application to Vercel/Railway, verify live functionality using the provided smoke-test checklist, and be prepared to explain the technical architecture during the hiring interview.
+The repository satisfies the core security, authorization, audit trail, testing, and architectural requirements of the challenge. The candidate must deploy the application to Vercel/Render, verify live functionality using the provided smoke-test checklist, and be prepared to explain the technical architecture during the hiring interview.
 
 ---
 
@@ -59,7 +59,7 @@ The repository satisfies the core security, authorization, audit trail, testing,
 | **22** | **GitHub Actions CI** | **PASS** | [`.github/workflows/ci.yml`](file:///c:/Users/ruthv/Projects/trustvault/.github/workflows/ci.yml) | Runs on push/PR to master. Isolated postgres:16 service container. Executes typecheck, builds, migrations, and test suite. | None. Completely reproducible with strict lockfile. | None. |
 | **23** | **Documentation & Runnability** | **PASS** | [`README.md`](file:///c:/Users/ruthv/Projects/trustvault/README.md), `docs/` (`ARCHITECTURE.md`, `API.md`, `DATABASE.md`, `TESTING.md`, `DEPLOYMENT.md`, `SECURITY.md`, `THREATS.md`) | Comprehensive documentation. Prerequisites, local setup, migrations, startup commands, and role matrices fully documented. | Docker compose runs API only (external PostgreSQL required); clearly noted in README. | None. |
 | **24** | **Public GitHub Repository** | **PASS** | Git remote verification (`origin/master` pointing to `https://github.com/ruthvicksai-dev/trustvault.git`) | Git history and clean working tree verified. | Candidate must ensure repository visibility is set to Public on GitHub. | Verify GitHub repository settings. |
-| **25** | **Working Deployed Website** | **UNVERIFIED** | Local environment inspection | No live production URL configured in repo; no external production credentials in local files. | Deployment to Vercel/Railway must be executed by developer. | Execute deployment steps in Section E. |
+| **25** | **Working Deployed Website** | **UNVERIFIED** | Local environment inspection | No live production URL configured in repo; no external production credentials in local files. | Deployment to Vercel/Render must be executed by developer. | Execute deployment steps in Section E. |
 | **26** | **AI Understanding & Limitations** | **PASS** | [`PROMPTS.md`](file:///c:/Users/ruthv/Projects/trustvault/PROMPTS.md), Section H of this report | Implementation decisions, architectural trade-offs, and interview defense questions comprehensively analyzed. | Candidate must review technical concepts prior to interview. | Review Section H. |
 
 ---
@@ -104,13 +104,14 @@ All tests and builds were executed directly in the local workspace. Zero mock sh
 |:---|:---|:---:|:---:|:---|
 | **TypeScript Monorepo Typecheck** | `npm run typecheck` | **PASS** | 0 errors across API and Web | Strict mode enabled; zero type assertions bypassed. |
 | **API Production Build** | `npm run build:api` | **PASS** | Compiled to `apps/api/dist` | Clean TypeScript compilation via `tsc -p tsconfig.build.json`. |
-| **Web SPA Production Build** | `npm run build:web` | **PASS** | Generated `apps/web/dist` | 360 modules transformed cleanly in 4.18s via Vite 6. |
-| **Unit Test Suite** | `npm run test:unit` | **PASS** | **59 passed** (9 files) | Fast in-memory execution; zero database I/O required. |
-| **Integration Test Suite** | `npm run test:integration` | **PASS** | **177 passed** (9 files) | Executed against dedicated PostgreSQL test database. |
+| **Web SPA Production Build** | `npm run build:web` | **PASS** | Generated `apps/web/dist` | 361 modules transformed cleanly via Vite 6. |
+| **Unit Test Suite** | `npm run test:unit` | **PASS** | **70 passed** (10 files) | Fast in-memory execution; zero database I/O required. |
+| **Integration Test Suite** | `npm run test:integration` | **PASS** | **185 passed** (10 files) | Executed against dedicated PostgreSQL test database. |
 | **Row Level Security (RLS) Tests** | `vitest run tests/integration/rls.test.ts` | **PASS** | **24 passed** (1 file) | Executed using simulated restricted role (`trustvault_restricted_tester`). |
 | **Admin Governance Tests** | `vitest run tests/integration/admin.test.ts` | **PASS** | **15 passed** (1 file) | Listing, roles, self-demotion, last-admin, session invalidation. |
 | **Profile Metadata Tests** | `vitest run tests/integration/profile.test.ts` | **PASS** | **7 passed** (1 file) | Profile update, XSS validation, CSRF, audit emission. |
-| **Total Automated Tests** | `npm test` | **PASS** | **236 passed** (18 files) | 100% test pass rate across unit, integration, and security suites. |
+| **Demo Provisioning Tests** | `vitest run tests/integration/demo-provisioning.test.ts` | **PASS** | **8 passed** (1 file) | Environment guards, idempotency, role isolation, immediate revocation. |
+| **Total Automated Tests** | `npm test` | **PASS** | **255 passed** (20 files) | 100% test pass rate across unit, integration, and security suites. |
 | **Database Connection Check** | `npm run db:check --workspace=apps/api` | **PASS** | Connected successfully | PostgreSQL connection and server time verified. |
 | **Git Diff Whitespace Check** | `git diff --check` | **PASS** | Clean | Zero trailing whitespace or merge conflict markers. |
 
@@ -125,7 +126,7 @@ All tests and builds were executed directly in the local workspace. Zero mock sh
    - Working Tree: Clean
 2. **Working Deployed Website:** **UNVERIFIED (Action Required by Candidate)**
    - No live URL is configured in the local workspace.
-   - The candidate must deploy `apps/api` to Railway and `apps/web` to Vercel following the documented steps below.
+   - The candidate must deploy `apps/api` to Render and `apps/web` to Vercel following the documented steps below.
 
 ### Pre-Deployment Smoke-Test Checklist for the Candidate
 Before submitting the live deployment URL:
@@ -134,9 +135,9 @@ Before submitting the live deployment URL:
   - Create a Supabase project.
   - Apply migrations: `supabase db push` (or execute `20261020161159_create_trustvault_schema.sql` and `20261024103000_enable_row_level_security.sql` in SQL Editor).
   - Create storage bucket **`trustvault-private`** and ensure **Public Bucket is UNCHECKED** (`public: false`).
-- [ ] **Backend Deployment (Railway):**
-  - Connect GitHub repository to Railway.
-  - Set Dockerfile path to `apps/api/Dockerfile` with root context `/`.
+- [ ] **Backend Deployment (Render):**
+  - Connect GitHub repository to Render (Web Service, runtime Docker).
+  - Set Dockerfile path to `./apps/api/Dockerfile` with root build context `.`.
   - Configure environment variables:
     - `NODE_ENV=production`
     - `DATABASE_URL` (Supabase pooled connection string)
@@ -170,7 +171,7 @@ Before submitting the live deployment URL:
 ## F. Prioritized Remediation Plan
 
 ### Tier 1: Submission Blockers (Immediate Candidate Action)
-1. **Live Cloud Deployment:** Deploy backend container to Railway and frontend SPA to Vercel.
+1. **Live Cloud Deployment:** Deploy backend container to Render and frontend SPA to Vercel.
 2. **Private Storage Bucket Setup:** Verify `trustvault-private` bucket exists in Supabase with public access disabled.
 3. **Smoke Test Execution:** Execute the manual checklist in Section E to verify live HTTPS cookies, CORS, and file download streaming.
 
