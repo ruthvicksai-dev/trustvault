@@ -1,487 +1,248 @@
-# TrustVault
+# TrustVault — Secure Document Sharing with a Real Audit Trail
 
-TrustVault is a secure document-sharing platform featuring per-document authorization, robust server-side session authentication, and an immutable access audit trail.
-
----
-
-## Architecture Overview
-
-TrustVault is organized as an npm workspace monorepo:
-
-- **`apps/api`**: Express 5 backend with PostgreSQL connection pooling, Argon2id password hashing, server-side session management (`connect-pg-simple`), strict CORS, Helmet security headers, and CSRF protection.
-- **`apps/web`**: React + Vite frontend SPA.
-- **`supabase/`**: Declarative schema migrations and Supabase configuration.
+TrustVault is an enterprise-grade document sharing and compliance platform designed for organizations that require strict per-document access control, tamper-resistant audit logging, and verifiable data privacy. Developed for a competitive engineering challenge, TrustVault demonstrates defense-in-depth security engineering across a modern TypeScript monorepo.
 
 ---
 
-## Environment Configuration
+## 1. Problem Statement & Target Users
 
-Copy `.env.example` to `.env` in the repository root:
+### The Problem
+Traditional file-sharing tools suffer from three fundamental security risks:
+1. **Coarse-Grained Permissions:** Shared links or folder-level access frequently lead to over-privileged data exposure and unauthorized re-sharing.
+2. **Insecure Direct Object References (IDOR):** Web APIs frequently trust client assertions, allowing users to probe sequential or guessed identifiers to inspect confidential metadata or download unauthorized files.
+3. **Mutilated or Missing Audit Trails:** Event logs are often stored in mutable database tables, omitted during background operations, or lack strict actor attribution, making post-incident forensics unreliable.
 
-```bash
-cp .env.example .env
+### Target Users
+- **Document Owners:** Legal, finance, and engineering leads who need to share confidential documents with specific colleagues, select between read-only and edit permissions, and revoke access instantly.
+- **Grantees (Viewers & Editors):** Internal team members or external collaborators who need access only to documents explicitly shared with them.
+- **Compliance Administrators:** Security officers who require system-wide visibility into security events, failed login attempts, and permission grants without violating document privacy by reading confidential file contents.
+
+---
+
+## 2. Implemented Features & Role Matrix
+
+### Implemented & Verified Capabilities
+- **Robust Argon2id Authentication:** OWASP-calibrated password hashing ($m=19\text{ MiB}, t=2, p=1$) with constant-work dummy verification to neutralize user enumeration and timing attacks.
+- **PostgreSQL Server Sessions:** Session storage backed by `connect-pg-simple` with session fixation protection (`req.session.regenerate`), 8-hour idle timeout, 24-hour absolute expiration, and multi-session revocation on password change.
+- **Centralized Document Gatekeeper:** Unified authorization engine ([`apps/api/src/documents/authorization.ts`](file:///c:/Users/ruthv/Projects/trustvault/apps/api/src/documents/authorization.ts)) evaluating document ownership, active grants, account status, and soft-deletion in single parameterized SQL queries.
+- **Immediate Grant Revocation:** Access grants can be revoked instantly (`revoked_at = now()`). Subsequent requests fail immediately without caching delays.
+- **Strict Anti-Enumeration:** Requests for unauthorized, soft-deleted, or nonexistent documents return uniform `404 Not Found` responses, preventing resource existence leakage.
+- **Private Object Storage Pipeline:** Uploads are inspected for magic byte signatures (rejecting DOS MZ/ELF executables and active scripts) and stored in a private Supabase bucket (`trustvault-private`). Downloads are streamed strictly through authorized backend routes with RFC 6266 / RFC 5987 header sanitization.
+- **Append-Only Audit Trail:** Authoritative event logging in `public.audit_events` (`BIGINT GENERATED ALWAYS AS IDENTITY`). Mutation attempts are rejected with `HTTP 405 Method Not Allowed`.
+- **Row Level Security (RLS) Engine:** Declarative database policies enforcing default-deny on `users`, `documents`, `document_grants`, `audit_events`, and `sessions`. Tested and verified via 24 dedicated regression tests.
+
+### Role & Permission Matrix
+
+| Role / Capability | `viewer` | `owner` | `admin` |
+|:---|:---:|:---:|:---:|
+| **Public Registration Default** | ✅ Yes | ❌ No | ❌ No |
+| **View Shared Documents** | ✅ If granted | ✅ If granted | ✅ If granted |
+| **Download Document Content** | ✅ If granted | ✅ If granted | ✅ If granted |
+| **Upload / Create Documents** | ❌ Forbidden (403) | ✅ Allowed | ✅ Allowed |
+| **Edit Document Metadata** | ❌ (Unless `edit` grant) | ✅ If owner | ❌ (Unless `edit` grant) |
+| **Soft-Delete Documents** | ❌ Forbidden | ✅ If owner | ❌ Forbidden (Least Privilege) |
+| **Share Document / Manage Grants** | ❌ Forbidden | ✅ If owner | ❌ Forbidden |
+| **View Document Audit Trail** | ❌ Forbidden (403) | ✅ If owner | ❌ (Unless owner) |
+| **View System-Wide Audit Log** | ❌ Forbidden (403) | ❌ Forbidden (403) | ✅ Allowed (`GET /api/audit`) |
+
+---
+
+## 3. Technology Stack
+
+- **Runtime & Language:** Node.js 22 LTS, TypeScript 5.8+ / 7.0 (Strict mode enabled across monorepo).
+- **Backend API:** Express 5.1, `connect-pg-simple`, `pg` (node-postgres), `@node-rs/argon2`, `busboy` (streaming multipart), `zod` 3.25, `helmet` 8.1, `cors`, `express-rate-limit`.
+- **Frontend SPA:** React 19.1, Vite 6.4, Tailwind CSS 4.3, React Router 7.1, `@remixicon/react`, `@base-ui/react`.
+- **Database & Storage:** PostgreSQL 15+ with `pgcrypto` extension; Supabase Storage for private S3-compatible binary blobs.
+- **Testing & Tooling:** Vitest 3.2, Supertest 7.1, Docker (multi-stage Alpine container).
+
+---
+
+## 4. Repository Structure
+
+```
+trustvault/
+├── apps/
+│   ├── api/                     # Express 5 Backend REST API
+│   │   ├── src/
+│   │   │   ├── audit/           # Append-only audit service and routes
+│   │   │   ├── auth/            # Argon2id hashing, session middleware, CSRF
+│   │   │   ├── db/              # Pool configuration, fail-closed test guard
+│   │   │   ├── documents/       # Centralized authorization, lifecycle, storage
+│   │   │   ├── app.ts           # Express application configuration
+│   │   │   ├── config.ts        # Environment schema and production assertions
+│   │   │   └── server.ts        # HTTP server entrypoint
+│   │   ├── tests/
+│   │   │   ├── integration/     # End-to-end API & RLS integration tests (155 tests)
+│   │   │   └── unit/            # Isolated in-memory unit tests (54 tests)
+│   │   ├── Dockerfile           # Alpine container specification for API deployment
+│   │   └── package.json
+│   └── web/                     # React 19 + Vite Frontend SPA
+│       ├── src/                 # UI components, pages, authentication context
+│       ├── vite.config.ts       # Reverse proxy configuration to API
+│       └── package.json
+├── docs/                        # Complete Technical Documentation
+│   ├── ARCHITECTURE.md          # System architecture, lifecycles, sequence diagrams
+│   ├── API.md                   # Complete REST API reference specification
+│   ├── DATABASE.md              # Database schema, constraints, RLS policies
+│   ├── TESTING.md               # Testing guide, test database guards, test results
+│   ├── DEPLOYMENT.md            # Production deployment guide (Vercel, Railway, Supabase)
+│   ├── SECURITY.md              # Security policy, checklist, responsible disclosure
+│   └── rls-audit-report.md      # Row Level Security implementation and audit report
+├── supabase/
+│   └── migrations/              # Declarative SQL schema and RLS migrations
+├── docker-compose.yml           # Runs trustvault-api container (Note: No DB container)
+├── package.json                 # Root monorepo manifest and npm scripts
+├── PROMPTS.md                   # Chronological development log and phase history
+├── README.md                    # Primary repository entry point (this file)
+└── THREATS.md                   # Comprehensive security threat model and matrix
 ```
 
-### Environment Variables
+---
 
-| Variable | Description | Example / Default |
-|:---|:---|:---|
-| `NODE_ENV` | Runtime environment (`development`, `test`, `production`) | `development` |
-| `PORT` | API server listen port | `4000` |
-| `DATABASE_URL` | PostgreSQL connection string | `postgresql://postgres:...@...:5432/postgres` |
-| `SUPABASE_URL` | Supabase API URL | `https://<project-ref>.supabase.co` |
-| `SUPABASE_SECRET_KEY` | Supabase server-side service role key | (Secret) |
-| `FRONTEND_ORIGIN` | Allowed client origin for CORS & CSRF validation | `http://localhost:5173` |
-| `SESSION_SECRET` | Cryptographic secret for signing session cookies (min 32 chars) | (64-char hex string) |
-| `SUPABASE_STORAGE_BUCKET` | Storage bucket for private encrypted files | `trustvault-private` |
-| `TRUST_PROXY` | Reverse proxy trust configuration (`false`, `true`, or subnet CIDR) | `false` |
+## 5. Prerequisites
+
+Before installing TrustVault, ensure you have:
+1. **Node.js:** `v22.0.0` or higher (`node -v`).
+2. **npm:** `v10.0.0` or higher (`npm -v`).
+3. **PostgreSQL Database:** PostgreSQL 15+ instance (either via local PostgreSQL installation or cloud Supabase project).
+   > [!IMPORTANT]
+   > The included `docker-compose.yml` runs **only the `trustvault-api` application service**; it does not start a local PostgreSQL container. You must have a reachable PostgreSQL instance configured via `DATABASE_URL`.
 
 ---
 
-## Getting Started
+## 6. Local Setup & Reproducible Installation
 
-### 1. Install Dependencies
+Follow these steps to run TrustVault locally on your development machine.
 
-```bash
+### Step 1: Clone and Install Monorepo Dependencies
+```powershell
+# Clone the repository
+git clone https://github.com/ruthvicksai-dev/trustvault.git
+cd trustvault
+
+# Install dependencies across all npm workspaces
 npm install
 ```
 
-### 2. Verify Database Connectivity
+### Step 2: Configure Environment Variables
+Copy the template configuration file in the repository root:
+```powershell
+# Windows PowerShell
+Copy-Item .env.example .env
 
-```bash
-npm run db:check --workspace=apps/api
+# Linux / macOS
+cp .env.example .env
 ```
 
-### 3. Run the Development Servers
+Edit `.env` to configure your development PostgreSQL and Supabase settings:
+```env
+NODE_ENV=development
+PORT=4000
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/trustvault
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SECRET_KEY=your_service_role_secret_key
+FRONTEND_ORIGIN=http://localhost:5173
+SESSION_SECRET=c8f1e9b2a7d4c6e8f0a2b4d6e8c0a2b4d6e8f0a2b4c6e8d0
+SUPABASE_STORAGE_BUCKET=trustvault-private
+TRUST_PROXY=false
+```
 
+### Step 3: Run Database Migrations
+Apply the baseline schema and RLS policies to your database:
+```powershell
+# Check database connectivity
+npm run db:check --workspace=apps/api
+```
+*(If using Supabase CLI, run `supabase db push`. If using raw PostgreSQL, execute the SQL files in [`supabase/migrations`](file:///c:/Users/ruthv/Projects/trustvault/supabase/migrations) in chronological order).*
+
+### Step 4: Start Development Servers
 Start the Express API server (port 4000):
-```bash
+```powershell
 npm run dev:api
 ```
 
-In a separate terminal, start the React + Vite web frontend (port 5173):
-```bash
+In a second terminal window, start the React + Vite web dashboard (port 5173):
+```powershell
 npm run dev:web
 ```
 
-The web dashboard is available at `http://localhost:5173` with reverse proxying to `http://localhost:4000/api`.
-
-### 4. Build and Typecheck
-
-```bash
-# Typecheck all workspaces (API + Web)
-npm run typecheck
-
-# Production build for both API and Web
-npm run build
-```
-
-### 5. Running Automated Tests
-
-TrustVault strictly isolates tests from production and development databases:
-
-```bash
-# Run unit tests (zero database writes, in-memory storage & session store)
-npm run test:unit
-
-# Run database integration tests (requires an explicitly designated test database)
-npm run test:integration
-```
-
-#### Test Database Isolation & Fail-Closed Guard
-
-To protect development and production Supabase databases from accidental writes or test fixture accumulation:
-1. Copy `.env.test.example` to `.env.test`.
-2. Configure `TEST_DATABASE_URL` pointing to an isolated, disposable test database (e.g., `postgresql://postgres:postgres@localhost:5432/trustvault_test`).
-3. If no test database is configured, or if the configured database matches development/production or points to an unconfirmed cloud database, the fail-closed guard (`assertTestDatabase`) immediately aborts execution before any SQL query can run.
-4. Storage operations in test mode default to `InMemoryStorageDriver`, ensuring no test files are written to remote buckets.
+Access the application in your browser at: **`http://localhost:5173`**. The Vite development server automatically proxies API requests (`/api` and `/health`) to port 4000.
 
 ---
 
-## Authentication API Reference
+## 7. Testing & Verification
 
-All authentication endpoints are mounted under `/api/auth`.
+TrustVault includes a comprehensive, verified test suite with zero external dependencies required for unit testing.
 
-### `GET /api/auth/csrf-token`
-- **Description:** Issues or retrieves a session-bound, cryptographically random CSRF token.
-- **Authentication:** None required.
-- **Response (200 OK):**
-  ```json
-  { "csrfToken": "4f1a...64-char-hex" }
-  ```
-
-### `POST /api/auth/register`
-- **Description:** Creates a new user account with the least-privileged `viewer` role.
-- **Authentication:** None required.
-- **Rate Limit:** 5 registrations per hour per IP.
-- **Input Validation:**
-  - `email`: Valid email, max 255 chars, normalized to lowercase.
-  - `password`: String, min 12 characters, max 128 characters.
-  - Strict schema: Client-supplied `role`, `status`, or extraneous fields are rejected with HTTP 400.
-- **Response (201 Created):**
-  ```json
-  {
-    "message": "Registration successful. Please log in.",
-    "user": {
-      "id": "uuid",
-      "email": "user@example.com",
-      "role": "viewer",
-      "status": "active",
-      "createdAt": "2026-10-21T..."
-    }
-  }
-  ```
-
-### `POST /api/auth/login`
-- **Description:** Authenticates user credentials, provides enumeration-resistant responses, mitigates timing attacks via Argon2id dummy verification, regenerates session ID to prevent fixation, and issues a session cookie.
-- **Authentication:** None required.
-- **Rate Limit:** 10 attempts per 15 minutes per IP.
-- **Response (200 OK):**
-  ```json
-  {
-    "user": {
-      "id": "uuid",
-      "email": "user@example.com",
-      "role": "viewer",
-      "status": "active"
-    }
-  }
-  ```
-- **Error Response (401 Unauthorized):**
-  ```json
-  { "error": "Invalid email or password" }
-  ```
-  *(Identical response and execution timing for unknown accounts, incorrect passwords, and disabled accounts).*
-
-### `GET /api/auth/me`
-- **Description:** Returns the current authenticated user identity verified against the authoritative database.
-- **Authentication:** Valid session cookie required.
-- **Response (200 OK):**
-  ```json
-  {
-    "user": {
-      "id": "uuid",
-      "email": "user@example.com",
-      "role": "viewer",
-      "status": "active"
-    }
-  }
-  ```
-
-### `POST /api/auth/logout`
-- **Description:** Destroys the server-side session in PostgreSQL and clears the client-side session cookie.
-- **Authentication:** Valid session cookie required.
-- **Response (200 OK):**
-  ```json
-  { "message": "Logged out successfully" }
-  ```
-
-### `POST /api/auth/change-password`
-- **Description:** Authenticated password update requiring current password verification. Updates to a fresh Argon2id hash and revokes all other concurrent active sessions for the user.
-- **Authentication:** Valid session cookie required.
-- **Headers:** `x-csrf-token: <csrfToken>` required.
-- **Input:**
-  - `currentPassword`: Required.
-  - `newPassword`: Min 12 chars, max 128 chars.
-- **Response (200 OK):**
-  ```json
-  { "message": "Password changed successfully" }
-  ```
-
----
-
-## Document Authorization API Reference
-
-All document endpoints are mounted under `/api/documents` and enforce server-side session authentication (`requireAuth`). State-changing requests (`POST`, `PATCH`, `DELETE`) require Origin/Referer validation and session-bound CSRF tokens (`x-csrf-token`).
-
-### Authorization Rules
-- **Document Owners:** Can list, read metadata, stream content, update permitted metadata (`title`, `category`), soft-delete their own documents, and manage grants (list, create, update, revoke).
-- **Users with `read` Grant:** Can view metadata and download/stream content. Cannot edit metadata, soft-delete, or manage grants.
-- **Users with `edit` Grant:** Can view metadata, stream content, and update permitted metadata (`title`, `category`). Cannot soft-delete or manage grants.
-- **Administrators:** Do **not** automatically bypass authorization or gain access to private document contents without an explicit grant.
-- **Disabled Users:** Denied immediately at the authentication barrier.
-- **Anti-Enumeration:** Requests for non-existent, soft-deleted, or unauthorized documents return uniform `404 Not Found` responses to prevent resource discovery and IDOR scanning.
-- **Immediate Revocation:** Every authorization check queries authoritative database state in real time.
-
-### `GET /api/documents`
-- **Description:** Lists only documents the caller owns or has an active grant for. Supports search and category filtering at the SQL query level.
-- **Authentication:** Valid session required.
-- **Query Parameters:**
-  - `search` (optional string): case-insensitive title search.
-  - `category` (optional string): exact category match.
-  - `limit` (optional integer, default 50, max 100).
-  - `offset` (optional integer, default 0).
-- **Response (200 OK):**
-  ```json
-  {
-    "documents": [
-      {
-        "id": "uuid",
-        "title": "Q3 Financials",
-        "category": "Finance",
-        "mimeType": "text/plain",
-        "sizeBytes": 1024,
-        "createdAt": "2026-10-22T...",
-        "updatedAt": "2026-10-22T...",
-        "isOwner": true,
-        "permission": "owner"
-      }
-    ],
-    "pagination": { "total": 1, "limit": 50, "offset": 0 }
-  }
-  ```
-
-### `POST /api/documents`
-- **Description:** Uploads, validates, and creates a new document. Supports streaming `multipart/form-data` uploads (with bounded memory and temporary-file cleanup) as well as `application/json` payloads. Server-side validation inspects file magic bytes, enforces maximum file sizes, and generates unguessable UUID storage keys. Sets `owner_id` strictly from authenticated session identity. Restricted to `owner` and `admin` roles (`viewer` role receives HTTP 403).
-- **Authentication:** Valid session cookie required.
-- **Headers:** `x-csrf-token: <csrfToken>` required.
-- **Rate Limits & Concurrency:** 20 uploads / 15 min per IP; bounded concurrency semaphore (max 10 active concurrent uploads).
-- **File Validation Policies:**
-  - **Maximum File Size:** 10 MiB (`10485760` bytes) enforced during streaming and before DB persistence. Empty files (0 bytes) rejected with HTTP 400. Files exceeding limit rejected with HTTP 413 Payload Too Large.
-  - **Allowlisted MIME Types:** `application/pdf`, `image/png`, `image/jpeg`, `image/webp`, `text/plain`, `text/markdown`, `text/csv`, `application/json`, `application/vnd.openxmlformats-officedocument.wordprocessingml.document` (DOCX), `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` (XLSX).
-  - **Content Inspection:** Detects magic byte signatures (PDF `%PDF-`, PNG `\x89PNG`, JPEG `\xFF\xD8\xFF`, WebP `RIFF..WEBP`, Office `PK\x03\x04`). Rejects executable binaries (DOS MZ, ELF) and embedded active script tags (`<script>`, `<?php`). Never trusts client-declared `Content-Type` or file extensions.
-  - **`application/octet-stream` Policy:** `application/octet-stream` is treated strictly as an undeclared/generic MIME type and is NEVER permitted as the final document MIME type. Uploads declaring `application/octet-stream` are inspected for genuine magic byte signatures; if the content independently matches an allowlisted format (e.g., PDF or PNG), it is accepted under that verified format. If the content cannot be verified against the allowlist, the upload is rejected with HTTP 400 Bad Request.
-  - **JSON Document Validation:** JSON files of any size up to 10 MiB are validated for syntactic correctness. If a document is declared as `application/json` or uploaded with a `.json` extension, it must parse successfully as valid JSON; malformed JSON is rejected with HTTP 400 Bad Request.
-  - **Filename Validation & Rejection:** Filenames containing null bytes (`\0`) or invalid ASCII control characters (`[\x00-\x1f\x7f]`) are rejected immediately with HTTP 400 Bad Request. Malicious inputs are not silently normalized or stripped. Storage keys are generated exclusively on the server using cryptographically random UUIDv4 and verified extensions; client filenames are never used for storage paths or filesystem operations.
-- **Payload Options:**
-  - **Option A (`multipart/form-data`):**
-    - `title`: String (1-200 chars).
-    - `category`: String (1-100 chars).
-    - `file`: File binary stream (attached file part). Temporary files are created with owner-only mode `0600` and `wx` exclusive flags, flushed before reading, and cleaned up across all failure paths.
-  - **Option B (`application/json`):**
-    - `title`: String (1-200 chars).
-    - `category`: String (1-100 chars).
-    - `content`: Non-empty text or base64 string.
-    - `mimeType`: String (optional, default `text/plain`).
-    - `filename`: String (optional, max 255 chars, rejects null bytes/control chars).
-- **Consistency & Failure Recovery:**
-  - Storage upload occurs before database insertion.
-  - If database insertion fails after storage upload succeeds, a compensating delete immediately purges the uploaded object from storage.
-  - If compensating cleanup fails, a `storage_cleanup_failed` audit event is logged with the unguessable storage key for offline reconciliation, while preserving the original database error.
-  - A durable reconciliation function (`reconcileOrphanedObjects`) safely paginates through storage objects in configurable batches (default 100). If listing or pagination fails at any point, reconciliation aborts immediately without deleting any files.
-  - *Reconciliation Race Prevention:* To protect in-flight uploads whose database transactions have not yet committed, reconciliation enforces a 15-minute grace period (`gracePeriodMs: 900000`). Any object created within the grace window is preserved. Remaining race conditions are limited to transactions stalled longer than the grace period.
-- **Response (201 Created):**
-  ```json
-  {
-    "message": "Document created successfully",
-    "document": {
-      "id": "uuid",
-      "title": "Q3 Financials",
-      "category": "Finance",
-      "mimeType": "application/pdf",
-      "sizeBytes": 1048576,
-      "createdAt": "2026-10-22T...",
-      "updatedAt": "2026-10-22T...",
-      "isOwner": true,
-      "permission": "owner"
-    }
-  }
-  ```
-
-### `GET /api/documents/:id`
-- **Description:** Returns document metadata. Requires ownership or an active grant. Returns 404 for unauthorized callers.
-- **Authentication:** Valid session cookie required.
-- **Security & Cache Headers Enforced:**
-  - `Cache-Control: private, no-store, no-cache, must-revalidate` (instructs browsers and intermediary proxies not to persist confidential metadata in HTTP caches)
-  - `Pragma: no-cache`
-- **Response (200 OK):**
-  ```json
-  {
-    "document": {
-      "id": "uuid",
-      "title": "Q3 Financials",
-      "category": "Finance",
-      "mimeType": "application/pdf",
-      "sizeBytes": 1048576,
-      "createdAt": "2026-10-22T...",
-      "updatedAt": "2026-10-22T...",
-      "isOwner": false,
-      "permission": "read"
-    }
-  }
-  ```
-
-### `GET /api/documents/:id/download`
-- **Description:** Streams authorized document bytes directly through a server-mediated streaming pipeline. Never exposes internal storage keys, credentials, or signed URLs.
-- **Authentication:** Valid session cookie required.
-- **Rate Limits:** 100 downloads / 15 min per IP.
-- **Security & Cache Headers Enforced:**
-  - `Content-Type: <validated_mime_type>`
-  - `Content-Disposition: attachment; filename="<sanitized_ascii>"; filename*=UTF-8''<rfc5987_encoded>` (RFC 6266 / RFC 5987 compliant header encoding preventing HTTP response splitting and header injection)
-  - `Content-Length: <size_bytes>`
-  - `Cache-Control: private, no-store, no-cache, must-revalidate` (prevents client-side disk, shared proxy, and browser cache persistence)
-  - `Pragma: no-cache`
-  - `X-Content-Type-Options: nosniff` (mitigates MIME-sniffing execution attacks)
-  - *Client-Side Caching Guarantees & Limitations:* HTTP cache-control headers prevent intermediary proxy and browser cache persistence; however, they cannot prevent a user from explicitly saving a downloaded file to their local filesystem, taking screenshots, or retain copies that have already been transferred to an untrusted client device.
-- **Response (200 OK):** Binary stream or text content.
-
-### `PATCH /api/documents/:id`
-- **Description:** Updates permitted document metadata (`title`, `category`). Requires document ownership OR active `edit` grant.
-- **Authentication:** Valid session cookie required.
-- **Headers:** `x-csrf-token: <csrfToken>` required.
-- **Input:**
-  - `title` (optional string, 1-200 chars).
-  - `category` (optional string, 1-100 chars).
-- **Response (200 OK):**
-  ```json
-  {
-    "message": "Document updated successfully",
-    "document": { ... }
-  }
-  ```
-
-### `DELETE /api/documents/:id`
-- **Description:** Soft-deletes a document (`deleted_at = now()`). Restricted strictly to document owner.
-- **Authentication:** Valid session cookie required.
-- **Headers:** `x-csrf-token: <csrfToken>` required.
-- **Response (200 OK):**
-  ```json
-  { "message": "Document deleted successfully" }
-  ```
-
-### `GET /api/documents/:id/grants`
-- **Description:** Lists all active and historical revoked grants for the document. Restricted strictly to document owner.
-- **Authentication:** Valid session cookie required.
-- **Response (200 OK):**
-  ```json
-  {
-    "grants": [
-      {
-        "id": "uuid",
-        "documentId": "uuid",
-        "userId": "uuid",
-        "userEmail": "colleague@example.com",
-        "permission": "read",
-        "grantedBy": "uuid",
-        "createdAt": "2026-10-22T...",
-        "revokedAt": null,
-        "isActive": true
-      }
-    ]
-  }
-  ```
-
-### `POST /api/documents/:id/grants`
-- **Description:** Grants access to a user via email lookup. Validates recipient status (`active`), prevents duplicate active grants (409 Conflict), disallows self-granting, and safely supports re-granting after revocation while preserving historical audit rows. Restricted strictly to document owner.
-- **Authentication:** Valid session cookie required.
-- **Headers:** `x-csrf-token: <csrfToken>` required.
-- **Input:**
-  - `email`: Recipient email address.
-  - `permission`: `"read"` or `"edit"`.
-- **Response (201 Created):**
-  ```json
-  {
-    "message": "Access granted successfully",
-    "grant": { ... }
-  }
-  ```
-
-### `PATCH /api/documents/:id/grants/:grantId`
-- **Description:** Updates an active grant's permission (`read` <-> `edit`). Restricted strictly to document owner.
-- **Authentication:** Valid session cookie required.
-- **Headers:** `x-csrf-token: <csrfToken>` required.
-- **Input:**
-  - `permission`: `"read"` or `"edit"`.
-- **Response (200 OK):**
-  ```json
-  { "message": "Grant updated successfully", "grant": { ... } }
-  ```
-
-### `DELETE /api/documents/:id/grants/:grantId`
-- **Description:** Immediately revokes access (`revoked_at = now()`). Subsequent requests by grantee are denied immediately without cache delay. Restricted strictly to document owner.
-- **Authentication:** Valid session cookie required.
-- **Headers:** `x-csrf-token: <csrfToken>` required.
-- **Response (200 OK):**
-  ```json
-  { "message": "Grant revoked successfully" }
-  ```
-
----
-
-## Audit API Reference
-
-All audit endpoints enforce `Cache-Control: private, no-store, no-cache, must-revalidate` and `Pragma: no-cache`. They are strictly read-only; state-modifying requests (`POST`, `PUT`, `PATCH`, `DELETE`) are rejected with HTTP 405 Method Not Allowed.
-
-### `GET /api/documents/:id/audit`
-- **Description:** Retrieves the chronological audit trail for a specific document.
-- **Authentication:** Valid session cookie required.
-- **Authorization:** Restricted strictly to the document **owner**. Outcomes are distinguished as follows:
-  - Document **owners** receive HTTP 200 OK with the document's audit history.
-  - Active **grantees** (with read or edit permissions) receive HTTP 403 Forbidden.
-  - Users with neither ownership nor an active grant (and requests for nonexistent or soft-deleted documents) receive uniform HTTP 404 Not Found anti-enumeration responses.
-- **Query Parameters:**
-  - `limit`: Number of events to return (default 50, max 100).
-  - `offset`: Pagination offset (default 0).
-- **Response (200 OK):**
-  ```json
-  {
-    "events": [
-      {
-        "id": "uuid",
-        "document_id": "uuid",
-        "actor_id": "uuid",
-        "action": "download_content",
-        "outcome": "success",
-        "reason": null,
-        "metadata": { "mimeType": "application/pdf", "sizeBytes": 1024 },
-        "occurred_at": "2026-10-22T..."
-      }
-    ],
-    "pagination": { "total": 1, "limit": 50, "offset": 0 }
-  }
-  ```
-
-### `GET /api/audit`
-- **Description:** Administrative oversight endpoint for system-wide security and audit events.
-- **Authentication:** Valid session cookie required.
-- **Authorization:** Restricted strictly to accounts with the **`admin`** role. Ordinary users (`owner`, `viewer`) receive HTTP 403 Forbidden. Does not disclose confidential document bodies or bypass document access grants.
-- **Query Parameters:**
-  - `action`: Filter by action name (e.g. `auth_login`, `create_grant`).
-  - `outcome`: Filter by outcome (`success`, `denied`, `failure`).
-  - `actorId`: Filter by actor UUID.
-  - `documentId`: Filter by document UUID.
-  - `limit`: Default 50, max 100.
-  - `offset`: Default 0.
-- **Response (200 OK):**
-  ```json
-  {
-    "events": [ ... ],
-    "pagination": { "total": 42, "limit": 50, "offset": 0 }
-  }
-  ```
-
----
-
-## Security Controls Summary
-
-- **Password Hashing:** Argon2id with reviewed OWASP parameters (19 MiB memory, 2 passes, 1 thread). Bounded concurrency limiter (max 10 concurrent hashes).
-- **Password Policy:** NIST SP 800-63B aligned (min 12, max 128 chars, full Unicode and whitespace support, no silent truncation).
-- **Session Security:** Server-side sessions backed by PostgreSQL `public.sessions`. Session fixation protection (`req.session.regenerate()`), 8-hour idle timeout, 24-hour absolute expiration, `HttpOnly`, `SameSite=Lax`, and `__Host-` cookie name in production.
-- **Account Disablement & Invalidation:** Authoritative real-time DB lookup on every request. Immediate 403 on disabled accounts. Password change deletes all other user sessions.
-- **CSRF Protection:** Strict `Origin` and `Referer` validation against `FRONTEND_ORIGIN` on all state-changing methods + synchronizer token (`x-csrf-token`) on protected operations.
-- **CORS:** Restrictive CORS allowlist matching only `FRONTEND_ORIGIN`. Credentialed access without wildcard reflection.
-- **Document Authorization:** Centralized engine evaluating ownership, active grants (`read` vs `edit`), soft deletion, and administrator boundary in single parameterized queries.
-- **Anti-Enumeration & Safe Responses:** Uniform 404 responses for inaccessible or non-existent documents prevent resource enumeration.
-- **Immediate Revocation:** Authorization decisions are evaluated in real-time against PostgreSQL with no long-lived token/session grant caches.
-- **Storage Boundary:** Private Supabase Storage bucket (`trustvault-private`) with server-controlled UUID storage keys. Downloads streamed strictly through authenticated, authorized endpoints.
-- **Audit Logging & Tamper Resistance:** Application-enforced append-only audit trail in `public.audit_events` with actor attribution, allowlist metadata sanitization, transaction-atomic logging where feasible, anti-enumeration protections, and strict 405 Method Not Allowed route-level protection against log modification or deletion (noting that application-level controls do not restrict direct SQL access by privileged database operators).
-
----
-
-## Testing & Verification
-
-Run the automated test suite:
-
-```bash
-# Run all tests across workspaces
+```powershell
+# Run the entire test suite (209 automated tests)
 npm test
 
-# Run API test suite directly
-npm run test --workspace=apps/api
+# Run isolated in-memory unit tests (no database required)
+npm run test:unit
 
-# Type-check TypeScript code
+# Run full integration and RLS regression tests (requires test database)
+npm run test:integration
+
+# Typecheck both API and Web workspaces
 npm run typecheck
 
-# Production build verification
+# Full production build verification
 npm run build
 ```
+
+### Test Database Configuration & Fail-Closed Guard
+To execute database integration tests:
+1. Create `.env.test` from `.env.test.example`:
+   ```powershell
+   Copy-Item .env.test.example .env.test
+   ```
+2. Configure `TEST_DATABASE_URL` pointing to a dedicated test database whose name **contains `test`** (e.g. `postgresql://postgres:postgres@localhost:5432/trustvault_test`).
+3. Apply migrations to the test database:
+   ```powershell
+   npm run db:migrate:test --workspace=apps/api
+   ```
+4. The built-in safety guard ([`apps/api/src/db/guard.ts`](file:///c:/Users/ruthv/Projects/trustvault/apps/api/src/db/guard.ts)) guarantees that integration tests will fail closed if `TEST_DATABASE_URL` points to a development or production database.
+
+---
+
+## 8. Deployment Overview
+
+- **Backend API:** Packaged via [`apps/api/Dockerfile`](file:///c:/Users/ruthv/Projects/trustvault/apps/api/Dockerfile) and ready for deployment to **Railway** or any container runtime.
+- **Frontend SPA:** Built via `npm run build:web` and optimized for static edge deployment on **Vercel**.
+- **PostgreSQL & Storage:** Hosted on **Supabase** with private bucket isolation (`trustvault-private`).
+
+For complete, step-by-step production deployment instructions, safe environment variable templates, and troubleshooting, refer to [`docs/DEPLOYMENT.md`](file:///c:/Users/ruthv/Projects/trustvault/docs/DEPLOYMENT.md).
+
+---
+
+## 9. Troubleshooting & FAQ
+
+### 1. `docker-compose.yml` does not start PostgreSQL
+- **Explanation:** The repository's `docker-compose.yml` specifies only the `trustvault-api` container service. It does not spin up a database. You must provide a running PostgreSQL instance (local or Supabase) and supply its URI in `DATABASE_URL`.
+
+### 2. `CRITICAL SECURITY ERROR: SESSION_SECRET must be set and provide at least 32 characters`
+- **Explanation:** In production mode (`NODE_ENV=production`), the application halts startup if `SESSION_SECRET` is missing or has fewer than 32 characters of entropy. Provide a 64-character random hex string.
+
+### 3. Integration tests fail: "FATAL TEST DATABASE SAFETY GUARD TRIGGERED"
+- **Explanation:** The test database URI does not contain the word `test`. Change the database name in `TEST_DATABASE_URL` to `trustvault_test` to protect real data from accidental deletion.
+
+### 4. Railway Free Tier Notice
+- **Explanation:** Free or starter tiers on Railway may spin down idle containers. When testing on free tiers, allow 15–30 seconds for container cold starts on the first request.
+
+---
+
+## 10. Complete Documentation Index
+
+For in-depth technical analysis, consult the dedicated documentation files:
+
+| Document | Description |
+|:---|:---|
+| [`docs/ARCHITECTURE.md`](file:///c:/Users/ruthv/Projects/trustvault/docs/ARCHITECTURE.md) | Architectural design, component responsibilities, trust boundaries, lifecycle sequence diagrams, and invariants. |
+| [`docs/API.md`](file:///c:/Users/ruthv/Projects/trustvault/docs/API.md) | Exhaustive REST API specification with request schemas, responses, status codes, and authorization rules. |
+| [`docs/DATABASE.md`](file:///c:/Users/ruthv/Projects/trustvault/docs/DATABASE.md) | Complete PostgreSQL schema, constraints, indexes, RLS policies, and database connection role analysis. |
+| [`docs/TESTING.md`](file:///c:/Users/ruthv/Projects/trustvault/docs/TESTING.md) | Comprehensive testing guide, fail-closed guards, test organization, and verified 209 passing tests. |
+| [`docs/DEPLOYMENT.md`](file:///c:/Users/ruthv/Projects/trustvault/docs/DEPLOYMENT.md) | Production deployment guide for Vercel, Railway, and Supabase with safe environment variable references. |
+| [`docs/SECURITY.md`](file:///c:/Users/ruthv/Projects/trustvault/docs/SECURITY.md) | Operational security guidelines, secret management standards, checklist, and responsible disclosure. |
+| [`THREATS.md`](file:///c:/Users/ruthv/Projects/trustvault/THREATS.md) | Comprehensive security threat model, threat matrices (Phases 4–9), and architectural residual risk analysis. |
+| [`PROMPTS.md`](file:///c:/Users/ruthv/Projects/trustvault/PROMPTS.md) | Chronological development log, technical decisions, and phase-by-phase implementation history. |

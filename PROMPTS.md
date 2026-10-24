@@ -314,8 +314,89 @@ Isolate automated tests from the real database. Ensure automated tests cannot ac
 - `npm run build`: Both API (`tsc`) and Web (`vite build`) built successfully.
 - Database audit: Confirmed zero test records were written to the Supabase database.
 
+---
+
+## Task: Row Level Security (RLS) Implementation & Review Hardening (Phase 9)
+
+**Date:** 2026-10-24
+
+**Problem:**
+While TrustVault enforced application-level authorization via `authorizeDocumentAccess()`, the PostgreSQL database lacked declarative Row Level Security (RLS) policies. Direct client connections (such as Supabase PostgREST or third-party integrations) or compromised application credentials could theoretically query application tables without row filtering.
+
+**Prompt / AI assistance requested:**
+Audit and implement appropriate Row Level Security (RLS) for TrustVault before production deployment. Inspect actual migrations, PostgreSQL connection configuration, Supabase configuration, Storage usage, authorization middleware, and tests. Determine whether the Express API connection role bypasses RLS. Create an idempotent migration enabling and forcing RLS on all sensitive tables (`users`, `documents`, `document_grants`, `audit_events`, `sessions`), implementing helper functions, triggers, and comprehensive integration tests.
+
+**AI contribution:**
+1. **Database Role & RLS Boundary Analysis:**
+   - Identified that the Express API connects via `DATABASE_URL` as the `postgres` user.
+   - Verified that `postgres` has `rolbypassrls = true` in PostgreSQL / Supabase, meaning server-side queries bypass database RLS.
+   - Documented the two-tier security model: Express server-side authorization is the primary gatekeeper; PostgreSQL RLS provides defense-in-depth against direct client access (PostgREST, anonymous or authenticated Supabase tokens).
+2. **Idempotent RLS Migration (`supabase/migrations/20261024103000_enable_row_level_security.sql`):**
+   - Implemented `auth.uid()` compatible with both Supabase JWT claims (`request.jwt.claim.sub`) and test session variables (`trustvault.current_user_id`).
+   - Created `SECURITY DEFINER` helper functions (`is_admin()`, `user_role()`, `is_document_owner()`, `document_owner()`, `has_document_grant()`, `has_document_edit_grant()`) with `SET search_path = public` to avoid recursion and search-path hijacking.
+   - Enabled and forced RLS (`FORCE ROW LEVEL SECURITY`) across `users`, `documents`, `document_grants`, `audit_events`, and `sessions`.
+   - Built `trg_documents_immutable_columns` trigger preventing non-service roles from modifying `storage_key`, `mime_type`, or `size_bytes`.
+   - Configured append-only policies on `public.audit_events` (zero `UPDATE` or `DELETE` policies).
+   - Configured zero policies on `public.sessions` (default-deny for non-superusers).
+3. **Dedicated RLS Integration Suite (`apps/api/tests/integration/rls.test.ts`):**
+   - Developed 24 comprehensive integration tests testing database-level policy behavior using `SET LOCAL ROLE trustvault_restricted_tester` and `SET LOCAL trustvault.current_user_id`.
+   - Verified default-deny, user isolation, document ownership isolation, grant permissions, trigger immutability, and append-only audit enforcement.
+4. **Code Review Fixes & Hardening:**
+   - *Storage objects ownership error:* Handled Supabase Storage objects table ownership safely in migration.
+   - *Test migration URL parser fix (`apps/api/src/db/apply-test-migration.ts`):* Preserved characters after first equals sign and trimmed surrounding quotes.
+   - *Fallback role privilege minimization:* Updated fallback `anon` and `authenticated` role creation to use `WITH NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB`.
+   - *Audit events cleanup parameter cast:* Fixed parameter cast to `$1::bigint[]` in `rls.test.ts` and tracked only persistent pool inserts (avoiding rolled-back transaction IDs).
+   - *Audit report documentation:* Generated detailed technical report in `docs/rls-audit-report.md`.
+
+**Verification:**
+- Ran `npm test`: 15 test files passed, 209 tests passed (including all 24 dedicated RLS integration tests).
+- Ran `npm run typecheck`: 0 errors across API and Web workspaces.
+- Ran `npm run build`: API and Web built cleanly.
+
+---
+
+## Task: Complete Technical Documentation Implementation & Final Audit (Phase 10)
+
+**Date:** 2026-10-24
+
+**Problem:**
+The repository required comprehensive technical documentation to be hiring-evaluation and audit ready. The `docs/` directory was empty, root documentation needed synchronization with the actual codebase, and all architectural, API, database, testing, and deployment realities needed evidence-based verification.
+
+**Prompt / AI assistance requested:**
+Inspect the entire repository, implement complete technical documentation in `docs/` (`ARCHITECTURE.md`, `API.md`, `DATABASE.md`, `TESTING.md`, `DEPLOYMENT.md`, `SECURITY.md`), update root documentation (`README.md`, `THREATS.md`, `PROMPTS.md`), and verify that all documentation accurately reflects the current application. Never invent features, endpoints, columns, env vars, or test results. Never expose secrets or credentials. Leave changes uncommitted for user review.
+
+**AI contribution:**
+1. **Authored [`docs/ARCHITECTURE.md`](file:///c:/Users/ruthv/Projects/trustvault/docs/ARCHITECTURE.md):**
+   - Documented system components, trust boundaries, authentication and session lifecycle, centralized authorization flowchart, upload and download sequence diagrams, grant sharing and revocation, and audit trail invariants.
+2. **Authored [`docs/API.md`](file:///c:/Users/ruthv/Projects/trustvault/docs/API.md):**
+   - Fully documented all registered endpoints across auth, documents, and audit routers with Zod input validation schemas, parameters, sample JSON payloads, HTTP status codes, rate limits, and 405 Method Not Allowed protections.
+3. **Authored [`docs/DATABASE.md`](file:///c:/Users/ruthv/Projects/trustvault/docs/DATABASE.md):**
+   - Specified tables, columns, indexes, constraints, and confirmed `status` column on `users` (not `is_active`).
+   - Documented both migrations (`20261020161159_create_trustvault_schema.sql` and `20261024103000_enable_row_level_security.sql`).
+   - Detailed RLS architecture, helper functions, trigger immutability, connection role `rolbypassrls = true` analysis, and migration execution procedures.
+4. **Authored [`docs/TESTING.md`](file:///c:/Users/ruthv/Projects/trustvault/docs/TESTING.md):**
+   - Documented unit vs integration test organization (8 unit suites with 54 tests; 7 integration suites with 155 tests; 209 total passing).
+   - Documented exact npm package scripts, fail-closed database safety guard (`apps/api/src/db/guard.ts`), `.env.test` configuration, and troubleshooting procedures.
+5. **Authored [`docs/DEPLOYMENT.md`](file:///c:/Users/ruthv/Projects/trustvault/docs/DEPLOYMENT.md):**
+   - Created practical production deployment guide for Vercel (Frontend SPA rewrite), Railway (API container via `apps/api/Dockerfile`), and Supabase (PostgreSQL + private Storage bucket `trustvault-private`).
+   - Documented safe environment variable templates, cookie hardening (`__Host-trustvault.sid`), CORS/CSRF configurations, and Railway free-tier limitations.
+6. **Authored [`docs/SECURITY.md`](file:///c:/Users/ruthv/Projects/trustvault/docs/SECURITY.md):**
+   - Created operational security guide detailing trust boundaries, secret management standards, database role hardening roadmap (`trustvault_app` role), pre-flight security checklist, and responsible vulnerability disclosure policy.
+7. **Updated [`README.md`](file:///c:/Users/ruthv/Projects/trustvault/README.md):**
+   - Overhauled as the primary hiring evaluator entry point with executive summary, problem statement, role descriptions, reproducible Windows PowerShell setup instructions, verified test commands, `docker-compose.yml` reality notes, and links to all supporting documentation.
+8. **Updated [`THREATS.md`](file:///c:/Users/ruthv/Projects/trustvault/THREATS.md):**
+   - Strengthened threat model with protected assets, trust boundaries, Phase 9 RLS threat matrix (T-RLS-01 to T-RLS-05), `BYPASSRLS` analysis, updated test file paths, and actionable release blockers.
+
+**Verification:**
+- Ran `npm test`: 15 test files passed, 209 automated tests passed, 0 failures.
+- Ran `npm run typecheck`: Clean compilation with 0 errors across API and Web workspaces.
+- Ran `npm run build`: Both API (`tsc`) and Web (`vite build`) compiled cleanly.
+- Link Integrity: Verified all internal markdown links and file paths.
+
+---
+
 ## Documentation Rules
 
 - Record genuine AI prompts, contributions, and corrections.
 - Include actual verification results; never invent successful tests.
-- Add entries for later phases, including at least two genuine entries about authentication and audit logging.
+- Add entries for later phases, including at least two genuine entries about authentication and audit logging.
