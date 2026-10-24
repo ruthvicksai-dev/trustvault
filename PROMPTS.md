@@ -395,8 +395,44 @@ Inspect the entire repository, implement complete technical documentation in `do
 
 ---
 
+## Task: Configure GitHub Actions CI Pipeline (Phase 11)
+
+**Date:** 2026-10-24
+
+**Problem:**
+The repository lacked automated continuous integration (CI) to validate code changes, preventing regressions on pull requests or pushes to `master`.
+
+**Prompt / AI assistance requested:**
+Inspect the repository and implement a reliable GitHub Actions CI pipeline (`.github/workflows/ci.yml`) validating code quality, type safety, tests, and production builds. Trigger on pushes to `master`, PRs to `master`, and `workflow_dispatch`. Use Ubuntu runner and Node.js 22 LTS with lockfile caching. Provision an ephemeral PostgreSQL service container for integration tests, resolve `TEST_DATABASE_URL` safely without modifying real databases, and execute migrations and tests cleanly. Update documentation.
+
+**AI contribution:**
+1. **GitHub Actions Workflow ([`.github/workflows/ci.yml`](file:///c:/Users/ruthv/Projects/trustvault/.github/workflows/ci.yml)):**
+   - Configured triggers for `push` to `master`, `pull_request` targeting `master`, and `workflow_dispatch`.
+   - Applied restrictive permissions (`contents: read`) and concurrency grouping (`cancel-in-progress: true` for PRs).
+   - Provisioned official `postgres:16-alpine` service container with a dedicated `trustvault_test` database and health checks.
+   - Enforced strict dependency installation using `actions/setup-node@v4` (Node 22 LTS) and `npm ci` with npm cache.
+   - Configured steps: checkout, node setup, `npm ci`, `npm ls --depth=0`, `npm run typecheck`, `npm run build`, `npm run db:migrate:test`, and `npm test`.
+2. **Fresh CI Database Migration Support (`apps/api/src/db/apply-test-migration.ts`):**
+   - Updated `resolveTestDatabaseUrl()` to read from `process.env.TEST_DATABASE_URL` directly when `.env.test` file is absent in CI.
+   - Updated `applyTestMigration` to query `information_schema.tables` and automatically apply the base schema [`20261020161159_create_trustvault_schema.sql`](file:///c:/Users/ruthv/Projects/trustvault/supabase/migrations/20261020161159_create_trustvault_schema.sql) if tables do not exist, followed by idempotent RLS migration [`20261024103000_enable_row_level_security.sql`](file:///c:/Users/ruthv/Projects/trustvault/supabase/migrations/20261024103000_enable_row_level_security.sql).
+3. **Regression Unit Test Suite (`apps/api/tests/unit/apply-test-migration.test.ts`):**
+   - Added 5 unit tests verifying URL resolution, environment fallback, fail-closed guard assertions, fresh database migration execution, and existing database table skipping.
+4. **Documentation Updates:**
+   - Updated [`docs/TESTING.md`](file:///c:/Users/ruthv/Projects/trustvault/docs/TESTING.md) with Section 8 detailing CI triggers, steps, ephemeral service container, and security guarantees.
+   - Updated [`README.md`](file:///c:/Users/ruthv/Projects/trustvault/README.md) with CI pipeline overview and verified 214 test count.
+
+**Verification:**
+- Ran `npm test`: 16 test files passed, 214 automated tests passed, 0 failures.
+- Ran `npm run test:unit`: 9 test files passed, 59 tests passed.
+- Ran `npm run typecheck`: Clean compilation across `@trustvault/api` and `@trustvault/web`.
+- Ran `npm run build`: Production compilation clean for API and Web.
+- Validated YAML syntax for `.github/workflows/ci.yml`.
+
+---
+
 ## Documentation Rules
 
 - Record genuine AI prompts, contributions, and corrections.
 - Include actual verification results; never invent successful tests.
-- Add entries for later phases, including at least two genuine entries about authentication and audit logging.
+- Add entries for later phases, including at least two genuine entries about authentication and audit logging.
+

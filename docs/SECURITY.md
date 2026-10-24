@@ -98,7 +98,7 @@ ALTER TABLE public.sessions FORCE ROW LEVEL SECURITY;
 
 Before releasing updates or deploying to production, verify:
 
-- [ ] **Tests Pass:** `npm test` runs cleanly (209 passing tests, 0 failures).
+- [ ] **Tests Pass:** `npm test` runs cleanly (214 passing tests, 0 failures).
 - [ ] **Typecheck Passes:** `npm run typecheck` produces 0 errors.
 - [ ] **Build Completes:** `npm run build` compiles clean production bundles.
 - [ ] **Fail-Closed Test Guard:** `TEST_DATABASE_URL` strictly points to a database containing `test` in its name.

@@ -175,7 +175,7 @@ Access the application in your browser at: **`http://localhost:5173`**. The Vite
 TrustVault includes a comprehensive, verified test suite with zero external dependencies required for unit testing.
 
 ```powershell
-# Run the entire test suite (209 automated tests)
+# Run the entire test suite (214 automated tests)
 npm test
 
 # Run isolated in-memory unit tests (no database required)
@@ -191,8 +191,15 @@ npm run typecheck
 npm run build
 ```
 
+### Continuous Integration (CI)
+TrustVault features an automated GitHub Actions CI pipeline ([`.github/workflows/ci.yml`](file:///c:/Users/ruthv/Projects/trustvault/.github/workflows/ci.yml)) that runs on every push and pull request to `master`:
+- **Triggers:** Pushes and PRs targeting `master`, plus manual dispatch.
+- **Isolated Service Container:** Ephemeral `postgres:16-alpine` service container with a dedicated `trustvault_test` database.
+- **Automated Validation:** Validates `npm ci`, dependency tree sanity (`npm ls --depth=0`), full TypeScript typecheck (`npm run typecheck`), production builds (`npm run build`), automated test migration (`npm run db:migrate:test`), and the complete 214-test suite.
+- **Zero Production Exposure:** Tests execute in memory or against disposable containers with zero production Supabase access or secret leakage.
+
 ### Test Database Configuration & Fail-Closed Guard
-To execute database integration tests:
+To execute database integration tests locally:
 1. Create `.env.test` from `.env.test.example`:
    ```powershell
    Copy-Item .env.test.example .env.test
@@ -241,7 +248,7 @@ For in-depth technical analysis, consult the dedicated documentation files:
 | [`docs/ARCHITECTURE.md`](file:///c:/Users/ruthv/Projects/trustvault/docs/ARCHITECTURE.md) | Architectural design, component responsibilities, trust boundaries, lifecycle sequence diagrams, and invariants. |
 | [`docs/API.md`](file:///c:/Users/ruthv/Projects/trustvault/docs/API.md) | Exhaustive REST API specification with request schemas, responses, status codes, and authorization rules. |
 | [`docs/DATABASE.md`](file:///c:/Users/ruthv/Projects/trustvault/docs/DATABASE.md) | Complete PostgreSQL schema, constraints, indexes, RLS policies, and database connection role analysis. |
-| [`docs/TESTING.md`](file:///c:/Users/ruthv/Projects/trustvault/docs/TESTING.md) | Comprehensive testing guide, fail-closed guards, test organization, and verified 209 passing tests. |
+| [`docs/TESTING.md`](file:///c:/Users/ruthv/Projects/trustvault/docs/TESTING.md) | Comprehensive testing guide, fail-closed guards, test organization, and verified 214 passing tests. |
 | [`docs/DEPLOYMENT.md`](file:///c:/Users/ruthv/Projects/trustvault/docs/DEPLOYMENT.md) | Production deployment guide for Vercel, Railway, and Supabase with safe environment variable references. |
 | [`docs/SECURITY.md`](file:///c:/Users/ruthv/Projects/trustvault/docs/SECURITY.md) | Operational security guidelines, secret management standards, checklist, and responsible disclosure. |
 | [`THREATS.md`](file:///c:/Users/ruthv/Projects/trustvault/THREATS.md) | Comprehensive security threat model, threat matrices (Phases 4–9), and architectural residual risk analysis. |

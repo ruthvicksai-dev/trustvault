@@ -9,15 +9,16 @@ This document details the test architecture, test suite organization, environmen
 TrustVault features a layered automated test suite developed with **Vitest 3** and **Supertest**. Tests are divided into isolated unit tests (which run in-memory without database access) and end-to-end integration tests (which execute against an isolated PostgreSQL test database).
 
 ### Current Verification Status (Verified October 24, 2026)
-- **Total Test Files:** 15 passed (15)
-- **Total Automated Tests:** 209 passed (209)
+- **Total Test Files:** 16 passed (16)
+- **Total Automated Tests:** 214 passed (214)
 - **Failures / Skipped Tests:** 0
 - **TypeScript Typecheck:** 0 errors across API and Web workspaces
 - **Production Build:** 100% clean compilation for API (`tsc`) and Web (`vite build`)
 
 ```
 Test Distribution:
-├── Unit Test Suites (8 files, 54 tests)
+├── Unit Test Suites (9 files, 59 tests)
+│   ├── apply-test-migration.test.ts (5 tests)
 │   ├── argon2.test.ts (10 tests)
 │   ├── cookie-security.test.ts (1 test)
 │   ├── csrf.test.ts (8 tests)
@@ -222,3 +223,57 @@ This guarantees that PostgreSQL RLS policies are rigorously evaluated by the Pos
 ### Issue: Storage Provider Timeouts during Integration Tests
 - **Cause:** Network latency if connecting to a remote Supabase instance.
 - **Fix:** Integration tests automatically mock or isolate storage operations using the in-memory driver unless `TEST_STORAGE_BUCKET` is configured with valid cloud credentials.
+
+---
+
+## 8. Continuous Integration (GitHub Actions Pipeline)
+
+TrustVault's automated CI pipeline is configured in [`.github/workflows/ci.yml`](file:///c:/Users/ruthv/Projects/trustvault/.github/workflows/ci.yml).
+
+### Pipeline Triggers & Concurrency
+- **Triggers:**
+  - `push` to branch `master`.
+  - `pull_request` targeting `master`.
+  - Manual execution via `workflow_dispatch`.
+- **Concurrency Control:**
+  - Redundant pull request builds are automatically cancelled when new commits are pushed (`cancel-in-progress: true` for PRs).
+  - Pushes to `master` run to completion without interruption.
+- **Permissions:** Strictly read-only (`permissions: contents: read`).
+
+### Ephemeral Database Provisioning
+The CI workflow provisions an isolated, disposable PostgreSQL service container:
+```yaml
+services:
+  postgres:
+    image: postgres:16-alpine
+    env:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: trustvault_test
+    ports:
+      - 5432:5432
+    options: >-
+      --health-cmd pg_isready
+      --health-interval 5s
+      --health-timeout 5s
+      --health-retries 5
+```
+
+### CI Job Step Sequence
+1. **Repository Checkout:** Uses `actions/checkout@v4`.
+2. **Node.js Environment:** Uses `actions/setup-node@v4` with Node.js 22 LTS and automatic npm dependency caching based on `package-lock.json`.
+3. **Reproducible Installation:** Executes `npm ci`.
+4. **Workspace Verification:** Executes `npm ls --depth=0` to confirm tree integrity.
+5. **TypeScript Compilation Check:** Executes `npm run typecheck` (`tsc --noEmit` across `@trustvault/api` and `@trustvault/web`).
+6. **Production Build:** Executes `npm run build` (`build:api` and `build:web`).
+7. **Database Migration Runner:** Executes `npm run db:migrate:test --workspace=apps/api`.
+   - Resolves `TEST_DATABASE_URL` directly from the CI environment.
+   - Validates the database URL against `assertTestDatabase(testUrl)`.
+   - Checks if `public.users` exists. On the fresh CI container, applies base schema [`20261020161159_create_trustvault_schema.sql`](file:///c:/Users/ruthv/Projects/trustvault/supabase/migrations/20261020161159_create_trustvault_schema.sql) and idempotent RLS migration [`20261024103000_enable_row_level_security.sql`](file:///c:/Users/ruthv/Projects/trustvault/supabase/migrations/20261024103000_enable_row_level_security.sql).
+8. **Automated Test Suite:** Executes `npm test` (all 16 test files, 214 tests).
+
+### Security Guarantees in CI
+- **Zero Production Access:** No production credentials, Supabase API keys, or production database URLs exist in the CI environment.
+- **Fail-Closed Guard Verified:** If `TEST_DATABASE_URL` were missing or pointed to a production URL, the job would immediately abort.
+- **In-Memory Storage:** The test environment runs with `InMemoryStorageDriver`, ensuring no external S3/Supabase storage buckets are contacted.
+
