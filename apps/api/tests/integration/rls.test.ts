@@ -46,6 +46,12 @@ describe("TrustVault — Row Level Security (RLS) Integration Suite", () => {
       END $$;
       GRANT USAGE ON SCHEMA public TO trustvault_restricted_tester, anon, authenticated;
       GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO trustvault_restricted_tester, authenticated;
+      GRANT EXECUTE ON FUNCTION public.is_document_owner(uuid, uuid) TO trustvault_restricted_tester;
+      GRANT EXECUTE ON FUNCTION public.document_owner(uuid) TO trustvault_restricted_tester;
+      GRANT EXECUTE ON FUNCTION public.has_document_grant(uuid, uuid) TO trustvault_restricted_tester;
+      GRANT EXECUTE ON FUNCTION public.has_document_edit_grant(uuid, uuid) TO trustvault_restricted_tester;
+      GRANT EXECUTE ON FUNCTION public.is_admin() TO trustvault_restricted_tester;
+      GRANT EXECUTE ON FUNCTION public.user_role() TO trustvault_restricted_tester;
     `);
 
     // 2. Seed test users (as privileged pool connection)
