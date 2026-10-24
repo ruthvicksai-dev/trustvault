@@ -25,6 +25,7 @@ import {
 export function OverviewPage() {
   const { user } = useAuth();
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
+  const [totalAccessible, setTotalAccessible] = useState<number>(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -37,6 +38,7 @@ export function OverviewPage() {
       // List accessible documents with limit 100 to calculate accurate totals for the user
       const res = await documentsApi.list({ limit: 100, offset: 0 });
       setDocuments(res.documents || []);
+      setTotalAccessible(res.pagination?.total ?? (res.documents?.length || 0));
     } catch (err: any) {
       setError(err?.message || "Failed to load dashboard overview.");
     } finally {
@@ -119,7 +121,7 @@ export function OverviewPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold font-heading">
-                {loading ? <Skeleton className="h-8 w-14 rounded-lg" /> : documents.length}
+                {loading ? <Skeleton className="h-8 w-14 rounded-lg" /> : totalAccessible}
               </div>
               <p className="text-[11px] text-muted-foreground mt-1">
                 Documents available under current grants

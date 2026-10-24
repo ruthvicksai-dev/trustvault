@@ -13,6 +13,7 @@ import {
   registerSchema,
   loginSchema,
   changePasswordSchema,
+  updateProfileSchema,
 } from "./schemas.js";
 import {
   loginRateLimiter,
@@ -54,7 +55,7 @@ authRouter.post("/register", registerRateLimiter, async (req: Request, res: Resp
     const result = await pool.query(
       `INSERT INTO public.users (email, password_hash, role, status)
        VALUES ($1, $2, 'viewer', 'active')
-       RETURNING id, email, role, status, created_at`,
+       RETURNING id, email, role, status, display_name, created_at`,
       [input.email, passwordHash]
     );
 
@@ -74,6 +75,7 @@ authRouter.post("/register", registerRateLimiter, async (req: Request, res: Resp
         email: user.email,
         role: user.role,
         status: user.status,
+        displayName: user.display_name ?? null,
         createdAt: user.created_at,
       },
     });
@@ -121,7 +123,7 @@ authRouter.post("/login", loginRateLimiter, async (req: Request, res: Response) 
     const input = loginSchema.parse(req.body);
 
     const result = await pool.query(
-      `SELECT id, email, password_hash, role, status, updated_at
+      `SELECT id, email, password_hash, role, status, display_name, updated_at
        FROM public.users
        WHERE lower(email) = $1`,
       [input.email]
@@ -215,6 +217,7 @@ authRouter.post("/login", loginRateLimiter, async (req: Request, res: Response) 
             email: user.email,
             role: user.role,
             status: user.status,
+            displayName: user.display_name ?? null,
           },
         });
       });
@@ -367,6 +370,76 @@ authRouter.post("/change-password", requireAuth, requireCsrfToken, async (req: R
     }
 
     console.error("Password change error:", error.message);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/**
+ * PATCH /api/auth/profile
+ * Requires authentication and CSRF token.
+ * Allows authenticated users to update their own display name.
+ * Strictly prevents modification of role, status, email, or credentials.
+ */
+authRouter.patch("/profile", requireAuth, requireCsrfToken, async (req: Request, res: Response) => {
+  try {
+    const input = updateProfileSchema.parse(req.body);
+    const userId = req.user!.id;
+    const previousDisplayName = req.user!.displayName ?? null;
+    const newDisplayName = input.displayName !== undefined ? input.displayName : previousDisplayName;
+
+    const result = await pool.query(
+      `UPDATE public.users
+       SET display_name = $1, updated_at = now()
+       WHERE id = $2
+       RETURNING id, email, role, status, display_name, created_at, updated_at`,
+      [newDisplayName, userId]
+    );
+
+    if (result.rows.length === 0) {
+      res.status(404).json({ error: "User not found" });
+      return;
+    }
+
+    const user = result.rows[0];
+
+    // Update session user in memory
+    req.user!.displayName = user.display_name;
+
+    await recordAuditEvent({
+      actorId: userId,
+      action: "user_update_profile",
+      outcome: "success",
+      metadata: {
+        previousDisplayName,
+        newDisplayName: user.display_name,
+      },
+    });
+
+    res.json({
+      message: "Profile updated successfully",
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        status: user.status,
+        displayName: user.display_name ?? null,
+        createdAt: user.created_at,
+        updatedAt: user.updated_at,
+      },
+    });
+  } catch (error: any) {
+    if (error instanceof ZodError) {
+      res.status(400).json({
+        error: "Validation error",
+        details: error.errors.map((e) => ({
+          field: e.path.join("."),
+          message: e.message,
+        })),
+      });
+      return;
+    }
+
+    console.error("Profile update error:", error.message);
     res.status(500).json({ error: "Internal server error" });
   }
 });

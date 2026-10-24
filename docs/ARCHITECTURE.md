@@ -314,3 +314,49 @@ Every security-sensitive operation across authentication, document access, shari
 
 ### Architectural Limitations
 - **Database Superuser Boundary:** The database role used by Express (`postgres`) has table privileges. Append-only guarantees are enforced by application code and RLS policies (0 update/delete policies), but a database superuser or direct SQL console operator could theoretically execute raw SQL deletions. Cryptographic Merkle audit trees (RFC 6962) or external WORM storage are required for mathematical proof against privileged database administrators.
+
+---
+
+## 10. Multi-Tenant Architecture & Boundary Evaluation
+
+TrustVault implements a **user-centric document tenancy model** with explicit per-document discretionary access control (DAC), rather than an organization- or workspace-level tenancy model.
+
+### Multi-Tenancy Boundary Audit Findings
+
+| Audit Question | System Reality | Architectural Details |
+|:---|:---|:---|
+| **1. Is there an organization or tenant entity?** | **No** | The schema contains `users`, `documents`, `document_grants`, `audit_events`, and `sessions`. There are no `organizations`, `tenants`, or `workspaces` tables. |
+| **2. Can users belong to different organizations?** | **No** | Users register with an email address. There are no organization membership tables, domain-based tenant partitions, or multi-tenant user hierarchies. |
+| **3. Are documents associated with a tenant?** | **User-Level Only** | Documents belong to an `owner_id` (a user UUID in `public.users`). The owner is the sole authority over the document enclave. |
+| **4. Are document grants constrained by tenant boundaries?** | **Platform-Wide** | Any document owner can grant permissions (`read` or `edit`) to any registered user by their email address. |
+| **5. Can an owner share a document with a user outside their intended tenant?** | **By Design** | Because tenants are user-centric enclaves, sharing is discretionary per document. There are no cross-organization boundary constraints. |
+| **6. Can an admin see all users and documents?** | **Users: Yes; Documents: No** | Admins can list all users and audit logs. However, admins do **not** have implicit read or download access to documents they do not own. Zero-knowledge document isolation is preserved. |
+| **7. Does storage access enforce tenant and document permissions?** | **Yes** | Storage objects are stored in private buckets (`public: false`) with random UUID keys. Direct storage access is blocked; downloads stream exclusively through server authorization. |
+| **8. Can identifiers be substituted to access resources (IDOR)?** | **No** | Every document operation executes `authorizeDocumentAccess`. Non-owners without active grants receive uniform `HTTP 404 Not Found` responses. |
+
+### Product & Migration Assessment
+Introducing an organization-level tenant model would require a breaking database migration (`ALTER TABLE documents ADD COLUMN organization_id UUID NOT NULL`), an organizations table, tenant invitation workflows, and a complete rewrite of grant constraints and RLS policies. The current user-enclave model achieves complete document-level isolation, zero-knowledge administration, and strict IDOR prevention without unnecessary schema complexity.
+
+---
+
+## 11. Administrative User Governance & Session Lifecycle
+
+Administrative user management is exposed via `/api/admin/users` and enforced independently on the server.
+
+### Role Transition Rules
+- Supported application roles: `admin`, `owner`, `viewer`.
+- Public registration strictly assigns role `viewer` (`least privilege`).
+- Role transitions are performed exclusively by authenticated administrators via `PATCH /api/admin/users/:id/role`.
+- **Self-Demotion Safeguard:** An administrator cannot change their own role via the admin interface (`HTTP 400 Bad Request`).
+- **Last-Admin Safeguard:** To prevent accidental lockout, the server queries active administrators before applying role or status modifications. If only one active administrator remains, demoting or disabling that administrator is rejected (`HTTP 400 Bad Request`).
+
+### Account Disabling & Immediate Session Revocation
+When an administrator disables an account via `PATCH /api/admin/users/:id/status` (`status: "disabled"`):
+1. **Database Status Update:** `public.users.status` transitions from `'active'` to `'disabled'`.
+2. **Server-Side Session Purge:** The server executes an immediate multi-session invalidation:
+   ```sql
+   DELETE FROM public.sessions WHERE (sess::jsonb)->>'userId' = $1
+   ```
+3. **Subsequent API Enforcement:** Any subsequent request presenting an existing session cookie is rejected with `HTTP 401 Unauthorized` (session destroyed). If a session was cached in memory, `requireAuth` queries PostgreSQL and rejects non-active users with `HTTP 403 Forbidden` (`"Account disabled"`).
+4. **Data Preservation:** Disabling an account preserves all owned documents, active grants, and historical audit events intact.
+5. **Audit Trail:** Disabling and re-enabling actions emit immutable `admin_change_status` audit events with actor attribution.

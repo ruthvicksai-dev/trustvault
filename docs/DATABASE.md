@@ -25,16 +25,17 @@ Migrations must be executed in strict lexicographical order:
 |:---|:---|:---|:---|
 | 1 | [`supabase/migrations/20261020161159_create_trustvault_schema.sql`](file:///c:/Users/ruthv/Projects/trustvault/supabase/migrations/20261020161159_create_trustvault_schema.sql) | Base schema: creates tables `users`, `documents`, `document_grants`, `audit_events`, `sessions`, and corresponding indexes and check constraints. | Tested in `trustvault_test`; Ready for production. |
 | 2 | [`supabase/migrations/20261024103000_enable_row_level_security.sql`](file:///c:/Users/ruthv/Projects/trustvault/supabase/migrations/20261024103000_enable_row_level_security.sql) | Row Level Security (RLS): enables and forces RLS on all tables, defines `auth.uid()`, `SECURITY DEFINER` helper functions, immutable column trigger, and policies. | Tested in `trustvault_test`; Pending production migration. |
+| 3 | [`supabase/migrations/20261024120000_add_user_display_name.sql`](file:///c:/Users/ruthv/Projects/trustvault/supabase/migrations/20261024120000_add_user_display_name.sql) | Adds optional `display_name TEXT` column to `public.users` with 1-100 character length constraint for profile personalization. | Tested in `trustvault_test`; Ready for production. |
 
 > [!IMPORTANT]
-> **Production Status:** The RLS migration has been thoroughly verified against the isolated test database `trustvault_test` (24 passing integration tests in [`apps/api/tests/integration/rls.test.ts`](file:///c:/Users/ruthv/Projects/trustvault/apps/api/tests/integration/rls.test.ts)). It has **not yet been applied to the live production database**. See Section 7 for the verified, non-destructive migration execution procedure.
+> **Production Status:** The RLS migration and display name schema extension have been thoroughly verified against the isolated test database `trustvault_test` (24 RLS integration tests, 236 total automated tests). They have **not yet been applied to the live production database**. See Section 7 for the verified, non-destructive migration execution procedure.
 
 ---
 
 ## 3. Comprehensive Schema & Table Reference
 
 ### A. Table `public.users`
-Stores user identities, credentials, authorization roles, and account status.
+Stores user identities, credentials, authorization roles, profile metadata, and account status.
 
 ```sql
 CREATE TABLE public.users (
@@ -45,6 +46,8 @@ CREATE TABLE public.users (
         CHECK (role IN ('admin', 'owner', 'viewer')),
     status TEXT NOT NULL DEFAULT 'active'
         CHECK (status IN ('active', 'disabled')),
+    display_name TEXT
+        CHECK (display_name IS NULL OR length(trim(display_name)) BETWEEN 1 AND 100),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -56,12 +59,14 @@ CREATE TABLE public.users (
   - `password_hash` (`TEXT`, NOT NULL): Argon2id password hash (`$argon2id$v=19$m=19456,t=2,p=1$...`).
   - `role` (`TEXT`, NOT NULL): Application role (`'admin'`, `'owner'`, `'viewer'`).
   - `status` (`TEXT`, NOT NULL, default `'active'`): Account operational state (`'active'` or `'disabled'`).
+  - `display_name` (`TEXT`, NULL): Optional human-readable profile display name (1–100 characters).
   - `created_at` (`TIMESTAMPTZ`, default `now()`): Account registration timestamp.
   - `updated_at` (`TIMESTAMPTZ`, default `now()`): Timestamp of last credential update.
 - **Indexes & Constraints:**
   - `users_email_lower_unique` (`UNIQUE INDEX` on `lower(email)`): Enforces case-insensitive email uniqueness.
   - `users_role_check`: `role IN ('admin', 'owner', 'viewer')`.
   - `users_status_check`: `status IN ('active', 'disabled')`.
+  - `users_display_name_check`: `display_name IS NULL OR length(trim(display_name)) BETWEEN 1 AND 100`.
 
 ---
 

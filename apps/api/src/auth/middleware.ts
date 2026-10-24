@@ -123,7 +123,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
 
   try {
     const result = await pool.query(
-      `SELECT id, email, role, status, updated_at
+      `SELECT id, email, role, status, display_name, updated_at
        FROM public.users
        WHERE id = $1`,
       [req.session.userId]
@@ -173,6 +173,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
       email: dbUser.email,
       role: dbUser.role as UserRole,
       status: dbUser.status,
+      displayName: dbUser.display_name ?? null,
     };
 
     next();

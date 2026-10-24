@@ -1,5 +1,6 @@
 import type {
   User,
+  AdminUsersResponse,
   DocumentItem,
   DocumentGrant,
   DocumentsResponse,
@@ -190,6 +191,14 @@ export const authApi = {
   async changePassword(data: { currentPassword: string; newPassword: string }): Promise<{ message: string }> {
     return request<{ message: string }>("/api/auth/change-password", {
       method: "POST",
+      requiresCsrf: true,
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateProfile(data: { displayName?: string | null }): Promise<{ message: string; user: User }> {
+    return request<{ message: string; user: User }>("/api/auth/profile", {
+      method: "PATCH",
       requiresCsrf: true,
       body: JSON.stringify(data),
     });
@@ -391,5 +400,62 @@ export const auditApi = {
 
     const qs = query.toString();
     return request<AuditEventsResponse>(`/api/audit${qs ? `?${qs}` : ""}`);
+  },
+};
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/* Admin User Management API                                                   */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
+export interface AdminListUsersParams {
+  search?: string;
+  role?: "admin" | "owner" | "viewer";
+  status?: "active" | "disabled";
+  limit?: number;
+  offset?: number;
+}
+
+export const adminApi = {
+  async listUsers(params: AdminListUsersParams = {}): Promise<AdminUsersResponse> {
+    const query = new URLSearchParams();
+    if (params.search?.trim()) query.set("search", params.search.trim());
+    if (params.role) query.set("role", params.role);
+    if (params.status) query.set("status", params.status);
+    if (params.limit !== undefined) query.set("limit", String(params.limit));
+    if (params.offset !== undefined) query.set("offset", String(params.offset));
+
+    const qs = query.toString();
+    return request<AdminUsersResponse>(`/api/admin/users${qs ? `?${qs}` : ""}`);
+  },
+
+  async getUser(id: string): Promise<{ user: User }> {
+    return request<{ user: User }>(`/api/admin/users/${encodeURIComponent(id)}`);
+  },
+
+  async updateUserRole(id: string, role: "admin" | "owner" | "viewer"): Promise<{ message: string; user: User }> {
+    return request<{ message: string; user: User }>(`/api/admin/users/${encodeURIComponent(id)}/role`, {
+      method: "PATCH",
+      requiresCsrf: true,
+      body: JSON.stringify({ role }),
+    });
+  },
+
+  async updateUserStatus(id: string, status: "active" | "disabled"): Promise<{ message: string; user: User }> {
+    return request<{ message: string; user: User }>(`/api/admin/users/${encodeURIComponent(id)}/status`, {
+      method: "PATCH",
+      requiresCsrf: true,
+      body: JSON.stringify({ status }),
+    });
+  },
+
+  async updateUser(
+    id: string,
+    data: { role?: "admin" | "owner" | "viewer"; status?: "active" | "disabled"; displayName?: string | null }
+  ): Promise<{ message: string; user: User }> {
+    return request<{ message: string; user: User }>(`/api/admin/users/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      requiresCsrf: true,
+      body: JSON.stringify(data),
+    });
   },
 };

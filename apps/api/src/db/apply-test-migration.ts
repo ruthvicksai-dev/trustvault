@@ -78,6 +78,17 @@ export async function applyTestMigration(customPool?: pg.Pool): Promise<void> {
     await client.query(rlsSql);
     await client.query("COMMIT");
     console.log("RLS migration applied successfully to test database.");
+
+    // 3. Apply user display_name schema extension (idempotent)
+    const displayNameMigrationPath = resolve(rootDir, "supabase/migrations/20261024120000_add_user_display_name.sql");
+    if (existsSync(displayNameMigrationPath)) {
+      console.log("Applying display_name migration: 20261024120000_add_user_display_name.sql");
+      const displayNameSql = readFileSync(displayNameMigrationPath, "utf-8");
+      await client.query("BEGIN");
+      await client.query(displayNameSql);
+      await client.query("COMMIT");
+      console.log("Display name migration applied successfully to test database.");
+    }
   } catch (err: any) {
     try {
       await client.query("ROLLBACK");

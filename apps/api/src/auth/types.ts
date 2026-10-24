@@ -8,6 +8,7 @@ export interface AuthenticatedUser {
   email: string;
   role: UserRole;
   status: UserStatus;
+  displayName?: string | null;
 }
 
 declare module "express-session" {

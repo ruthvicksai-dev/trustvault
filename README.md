@@ -30,12 +30,16 @@ Traditional file-sharing tools suffer from three fundamental security risks:
 - **Private Object Storage Pipeline:** Uploads are inspected for magic byte signatures (rejecting DOS MZ/ELF executables and active scripts) and stored in a private Supabase bucket (`trustvault-private`). Downloads are streamed strictly through authorized backend routes with RFC 6266 / RFC 5987 header sanitization.
 - **Append-Only Audit Trail:** Authoritative event logging in `public.audit_events` (`BIGINT GENERATED ALWAYS AS IDENTITY`). Mutation attempts are rejected with `HTTP 405 Method Not Allowed`.
 - **Row Level Security (RLS) Engine:** Declarative database policies enforcing default-deny on `users`, `documents`, `document_grants`, `audit_events`, and `sessions`. Tested and verified via 24 dedicated regression tests.
+- **Administrative User Management:** Complete admin-only user directory with parameterized search, role promotion/demotion (`admin`, `owner`, `viewer`), account disabling/re-enabling, self-demotion protection, last-admin protection, and instant multi-session revocation upon account disabling.
+- **Profile Metadata Editing:** Self-service display name customization (`PATCH /api/auth/profile`) with strict XSS sanitization, length boundaries (1–100 chars), and immutable audit trail logging.
+- **236 Passing Automated Tests:** Full test suite coverage across 18 test files (59 unit tests, 177 integration tests) verifying authentication, RLS, authorization, storage, admin governance, and profile lifecycle.
 
 ### Role & Permission Matrix
 
 | Role / Capability | `viewer` | `owner` | `admin` |
 |:---|:---:|:---:|:---:|
 | **Public Registration Default** | ✅ Yes | ❌ No | ❌ No |
+| **Edit Personal Profile** | ✅ Allowed | ✅ Allowed | ✅ Allowed |
 | **View Shared Documents** | ✅ If granted | ✅ If granted | ✅ If granted |
 | **Download Document Content** | ✅ If granted | ✅ If granted | ✅ If granted |
 | **Upload / Create Documents** | ❌ Forbidden (403) | ✅ Allowed | ✅ Allowed |
@@ -43,6 +47,8 @@ Traditional file-sharing tools suffer from three fundamental security risks:
 | **Soft-Delete Documents** | ❌ Forbidden | ✅ If owner | ❌ Forbidden (Least Privilege) |
 | **Share Document / Manage Grants** | ❌ Forbidden | ✅ If owner | ❌ Forbidden |
 | **View Document Audit Trail** | ❌ Forbidden (403) | ✅ If owner | ❌ (Unless owner) |
+| **Manage Users & Roles** | ❌ Forbidden (403) | ❌ Forbidden (403) | ✅ Allowed (`/api/admin/users`) |
+| **Disable / Re-enable Accounts** | ❌ Forbidden (403) | ❌ Forbidden (403) | ✅ Allowed (`/api/admin/users/:id/status`) |
 | **View System-Wide Audit Log** | ❌ Forbidden (403) | ❌ Forbidden (403) | ✅ Allowed (`GET /api/audit`) |
 
 ---

@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { ChangePasswordDialog } from "@/components/settings/change-password-dialog";
+import { EditProfileDialog } from "@/components/settings/edit-profile-dialog";
 import { ThemeSwitcher } from "@/components/ui/theme-switcher";
 import { Spinner } from "@/components/ui/spinner";
 import {
@@ -12,11 +13,13 @@ import {
   RiLogoutBoxRLine,
   RiArrowDownSLine,
   RiAlertLine,
+  RiEditLine,
 } from "@remixicon/react";
 
 export function UserNav() {
   const { user, logout } = useAuth();
   const [open, setOpen] = useState(false);
+  const [editProfileOpen, setEditProfileOpen] = useState(false);
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState<string | null>(null);
@@ -75,10 +78,10 @@ export function UserNav() {
         className="flex items-center gap-2 p-1.5 sm:px-2.5 sm:py-1.5 rounded-full hover:bg-muted/70 transition-colors cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <div className="flex items-center justify-center size-7 rounded-full bg-primary/10 text-primary font-semibold text-xs uppercase shrink-0">
-          {user.email.slice(0, 2)}
+          {(user.displayName || user.email).slice(0, 2)}
         </div>
         <span className="hidden md:inline-block max-w-[140px] truncate text-xs font-medium text-foreground">
-          {user.email}
+          {user.displayName || user.email}
         </span>
         <RiArrowDownSLine className={`size-3.5 text-muted-foreground transition-transform duration-200 hidden sm:block ${open ? "rotate-180" : ""}`} />
       </button>
@@ -93,9 +96,14 @@ export function UserNav() {
         >
           {/* User Safe Identity Summary */}
           <div className="px-3 py-2">
-            <p className="text-xs font-semibold text-foreground truncate" title={user.email}>
-              {user.email}
+            <p className="text-xs font-semibold text-foreground truncate" title={user.displayName || user.email}>
+              {user.displayName || user.email}
             </p>
+            {user.displayName && (
+              <p className="text-[11px] text-muted-foreground truncate" title={user.email}>
+                {user.email}
+              </p>
+            )}
             <div className="flex items-center gap-2 mt-1">
               <Badge variant="secondary" className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0 h-4">
                 {user.role}
@@ -118,6 +126,21 @@ export function UserNav() {
           </div>
 
           <Separator className="my-2 bg-border/70" />
+
+          {/* Edit Profile Action */}
+          <button
+            type="button"
+            role="menuitem"
+            disabled={isLoggingOut}
+            onClick={() => {
+              setOpen(false);
+              setEditProfileOpen(true);
+            }}
+            className="flex w-full items-center gap-2.5 rounded-2xl px-3 py-2 text-xs font-medium text-foreground hover:bg-accent hover:text-accent-foreground transition-colors cursor-pointer text-left disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <RiEditLine className="size-4 text-muted-foreground shrink-0" />
+            <span>Edit Profile</span>
+          </button>
 
           {/* Change Password Action */}
           <button
@@ -180,6 +203,12 @@ export function UserNav() {
           </button>
         </div>
       )}
+
+      {/* Edit Profile Dialog */}
+      <EditProfileDialog
+        open={editProfileOpen}
+        onOpenChange={setEditProfileOpen}
+      />
 
       {/* Change Password Dialog */}
       <ChangePasswordDialog

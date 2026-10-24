@@ -6,7 +6,14 @@ export interface User {
   email: string;
   role: UserRole;
   status: UserStatus;
+  displayName?: string | null;
   createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface AdminUsersResponse {
+  users: User[];
+  pagination: Pagination;
 }
 
 export type DocumentPermission = "owner" | "read" | "edit";

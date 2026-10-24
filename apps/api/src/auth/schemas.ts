@@ -58,3 +58,22 @@ export const changePasswordSchema = z
   .strict({ message: "Unexpected fields in password change request" });
 
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
+
+/**
+ * Strict schema for authenticated profile updates.
+ * Rejects any attempt to tamper with role, status, email, id, etc.
+ */
+export const updateProfileSchema = z
+  .object({
+    displayName: z
+      .string()
+      .trim()
+      .min(1, "Display name must be at least 1 character")
+      .max(100, "Display name cannot exceed 100 characters")
+      .refine((val) => !/<script/i.test(val), { message: "Display name cannot contain script tags" })
+      .nullable()
+      .optional(),
+  })
+  .strict({ message: "Unexpected fields in profile update request" });
+
+export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;

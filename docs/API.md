@@ -43,6 +43,12 @@ All state-changing endpoints (`POST`, `PATCH`, `DELETE`) require:
 | `POST` | `/api/auth/logout` | Authenticated | Any active user | No | Auth Limiter |
 | `GET` | `/api/auth/me` | Authenticated | Any active user | No | Auth Limiter |
 | `POST` | `/api/auth/change-password` | Authenticated | Any active user | **Required** | Auth Limiter |
+| `PATCH` | `/api/auth/profile` | Authenticated | Any active user | **Required** | Auth Limiter |
+| `GET` | `/api/admin/users` | Authenticated | Role `admin` ONLY | No | No |
+| `GET` | `/api/admin/users/:id` | Authenticated | Role `admin` ONLY | No | No |
+| `PATCH` | `/api/admin/users/:id/role` | Authenticated | Role `admin` ONLY | **Required** | No |
+| `PATCH` | `/api/admin/users/:id/status` | Authenticated | Role `admin` ONLY | **Required** | No |
+| `PATCH` | `/api/admin/users/:id` | Authenticated | Role `admin` ONLY | **Required** | No |
 | `GET` | `/api/documents` | Authenticated | Active user (`owner`, `admin`, `viewer`) | No | No |
 | `POST` | `/api/documents` | Authenticated | Role `owner` or `admin` | **Required** | Upload Limiter + Concurrency |
 | `GET` | `/api/documents/:id` | Authenticated | Document Owner OR Active Grantee (`read` or `edit`) | No | No |
@@ -239,6 +245,39 @@ Validates current password, updates the stored Argon2id hash, and invalidates al
       "error": "Current password is incorrect"
     }
     ```
+  - `403 Forbidden`: If CSRF token is missing or invalid.
+
+---
+
+### `PATCH /api/auth/profile`
+Updates the authenticated user's profile metadata (`displayName`). Operating strictly on the session-authenticated user, client attempts to pass a target user ID or modify privileged fields (`role`, `status`, `password_hash`, `email`) are rejected.
+
+- **Authentication:** Required (`requireAuth`).
+- **CSRF Token:** Required (`requireCsrfToken`).
+- **Request Body (`application/json`):**
+  | Field | Type | Validation Rules |
+  |:---|:---|:---|
+  | `displayName` | `string \| null` | Optional/nullable. 1–100 chars, no script tags or HTML entities |
+- **Security Protections:**
+  - Strict input validation rejecting script/HTML injections.
+  - Prevents role, status, or email modification via `.strict()` Zod schema.
+  - Generates immutable `user_update_profile` audit log event with actor attribution.
+- **Responses:**
+  - `200 OK`:
+    ```json
+    {
+      "message": "Profile updated successfully",
+      "user": {
+        "id": "a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d",
+        "email": "user@example.com",
+        "role": "owner",
+        "status": "active",
+        "displayName": "Alice Smith"
+      }
+    }
+    ```
+  - `400 Bad Request`: Validation error or illegal tags in `displayName`.
+  - `401 Unauthorized`: If unauthenticated.
   - `403 Forbidden`: If CSRF token is missing or invalid.
 
 ---
@@ -628,3 +667,139 @@ Administrative system audit trail. Provides high-level security event oversight 
       "error": "Method Not Allowed: audit events are append-only"
     }
     ```
+
+---
+
+## 7. Administrative User Management Endpoints (`/api/admin`)
+
+Mounted at `/api/admin`. All administrative endpoints require authentication (`requireAuth`) and the `admin` role (`requireRole(['admin'])`). Requests from non-admin users (`owner`, `viewer`) are strictly rejected with `HTTP 403 Forbidden`.
+
+### `GET /api/admin/users`
+Lists registered users with pagination, role/status filtering, and parameterized search on email and display name.
+
+- **Authentication:** Required.
+- **Authorization:** Role `admin` ONLY (`requireRole(['admin'])`).
+- **Query Parameters:**
+  | Parameter | Type | Validation | Description |
+  |:---|:---|:---|:---|
+  | `search` | `string` | Safe string | Parameterized substring match on `email` or `display_name` |
+  | `role` | `string` | `'admin' \| 'owner' \| 'viewer'` | Filter by exact role |
+  | `status` | `string` | `'active' \| 'disabled'` | Filter by exact status |
+  | `limit` | `integer` | 1–100 (default 50) | Pagination limit |
+  | `offset` | `integer` | $\ge 0$ (default 0) | Pagination offset |
+- **Data Minimization:** `password_hash`, internal session keys, and secrets are strictly excluded from output.
+- **Responses:**
+  - `200 OK`:
+    ```json
+    {
+      "users": [
+        {
+          "id": "a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d",
+          "email": "user@example.com",
+          "role": "owner",
+          "status": "active",
+          "displayName": "Alice Smith",
+          "createdAt": "2026-10-24T10:00:00.000Z",
+          "updatedAt": "2026-10-24T12:00:00.000Z"
+        }
+      ],
+      "pagination": { "total": 1, "limit": 50, "offset": 0 }
+    }
+    ```
+  - `403 Forbidden`: Non-admin callers.
+
+---
+
+### `GET /api/admin/users/:id`
+Retrieves metadata for a specific user.
+
+- **Authentication:** Required.
+- **Authorization:** Role `admin` ONLY.
+- **URL Parameters:** `id` (UUID format).
+- **Responses:**
+  - `200 OK`: `{"user": { ... }}`
+  - `400 Bad Request`: Malformed UUID.
+  - `404 Not Found`: User does not exist.
+
+---
+
+### `PATCH /api/admin/users/:id/role`
+Updates a user's authorization role (`admin`, `owner`, `viewer`).
+
+- **Authentication:** Required (`requireAuth`).
+- **Authorization:** Role `admin` ONLY.
+- **CSRF Token:** Required (`requireCsrfToken`).
+- **Request Body (`application/json`):**
+  ```json
+  {
+    "role": "owner"
+  }
+  ```
+- **Security Invariants & Safeguards:**
+  - **Self-Demotion Protection:** Administrators cannot modify their own role via the admin interface (`HTTP 400`).
+  - **Last-Admin Protection:** Demoting the sole active administrator is strictly rejected with `HTTP 400` (`"Cannot demote the last active administrator"`).
+  - **Audit Logging:** Emits `admin_change_role` audit record with acting admin ID, target user ID, previous role, and new role.
+- **Responses:**
+  - `200 OK`:
+    ```json
+    {
+      "message": "User role updated successfully to owner",
+      "user": { "id": "...", "email": "...", "role": "owner", ... }
+    }
+    ```
+  - `400 Bad Request`: Self-demotion attempt, last admin demotion attempt, or invalid role value.
+  - `403 Forbidden`: Missing CSRF token or non-admin caller.
+  - `404 Not Found`: User does not exist.
+
+---
+
+### `PATCH /api/admin/users/:id/status`
+Disables or re-enables a user account.
+
+- **Authentication:** Required (`requireAuth`).
+- **Authorization:** Role `admin` ONLY.
+- **CSRF Token:** Required (`requireCsrfToken`).
+- **Request Body (`application/json`):**
+  ```json
+  {
+    "status": "disabled"
+  }
+  ```
+- **Security Invariants & Safeguards:**
+  - **Self-Disabling Protection:** Administrators cannot disable their own account (`HTTP 400`).
+  - **Last-Admin Protection:** Disabling the sole active administrator is rejected with `HTTP 400`.
+  - **Immediate Multi-Session Invalidation:** When an account is disabled, the server executes:
+    ```sql
+    DELETE FROM public.sessions WHERE (sess::jsonb)->>'userId' = $1
+    ```
+    All active sessions across all devices are immediately destroyed. Subsequent requests with existing session cookies return `HTTP 401 Unauthorized`.
+  - **Data Preservation:** Disabling an account never deletes documents, grants, or audit events.
+  - **Audit Logging:** Emits `admin_change_status` audit record with previous status and new status.
+- **Responses:**
+  - `200 OK`:
+    ```json
+    {
+      "message": "User account status updated successfully to disabled",
+      "user": { "id": "...", "email": "...", "status": "disabled", ... }
+    }
+    ```
+  - `400 Bad Request`: Self-disable attempt or last admin disable attempt.
+  - `403 Forbidden`: Missing CSRF token or non-admin caller.
+
+---
+
+### `PATCH /api/admin/users/:id`
+Administrative bulk metadata update (role, status, and/or display name).
+
+- **Authentication:** Required (`requireAuth`).
+- **Authorization:** Role `admin` ONLY.
+- **CSRF Token:** Required (`requireCsrfToken`).
+- **Request Body (`application/json`):**
+  ```json
+  {
+    "role": "owner",
+    "status": "active",
+    "displayName": "Updated Name"
+  }
+  ```
+- **Enforces:** Same self-modification and last-admin protections; purges sessions if status transition is `active` $\to$ `disabled`. Emits `admin_update_user` audit event.
