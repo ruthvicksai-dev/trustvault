@@ -30,16 +30,22 @@ describe("TrustVault — Row Level Security (RLS) Integration Suite", () => {
   beforeAll(async () => {
     ensureTestDatabaseAvailable();
 
-    // 1. Ensure restricted test role exists with NOBYPASSRLS
+    // 1. Ensure restricted test roles exist with NOBYPASSRLS
     await pool.query(`
       DO $$
       BEGIN
         IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'trustvault_restricted_tester') THEN
           CREATE ROLE trustvault_restricted_tester WITH LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB;
         END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+          CREATE ROLE anon WITH LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+          CREATE ROLE authenticated WITH LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB;
+        END IF;
       END $$;
-      GRANT USAGE ON SCHEMA public TO trustvault_restricted_tester;
-      GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO trustvault_restricted_tester;
+      GRANT USAGE ON SCHEMA public TO trustvault_restricted_tester, anon, authenticated;
+      GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO trustvault_restricted_tester, authenticated;
     `);
 
     // 2. Seed test users (as privileged pool connection)
@@ -114,12 +120,13 @@ describe("TrustVault — Row Level Security (RLS) Integration Suite", () => {
    */
   async function runAsRestrictedUser<T = any>(
     userId: string | null,
-    fn: (client: pg.PoolClient) => Promise<T>
+    fn: (client: pg.PoolClient) => Promise<T>,
+    role: string = "trustvault_restricted_tester"
   ): Promise<T> {
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
-      await client.query("SET LOCAL ROLE trustvault_restricted_tester");
+      await client.query(`SET LOCAL ROLE ${role}`);
       if (userId) {
         await client.query("SELECT set_config('trustvault.current_user_id', $1, true)", [userId]);
       } else {
@@ -187,6 +194,40 @@ describe("TrustVault — Row Level Security (RLS) Integration Suite", () => {
       });
 
       expect(rows).toHaveLength(0);
+    });
+
+    it("denies anon role from executing SECURITY DEFINER helper functions, but allows authenticated role", async () => {
+      // 1. Anon is denied EXECUTE
+      const clientAnon = await pool.connect();
+      try {
+        await clientAnon.query("BEGIN");
+        await clientAnon.query("SET LOCAL ROLE anon");
+        await expect(
+          clientAnon.query("SELECT public.is_document_owner($1, $2)", [docAId, ownerAId])
+        ).rejects.toThrow(/permission denied for function/);
+        await clientAnon.query("ROLLBACK");
+      } catch (err) {
+        await clientAnon.query("ROLLBACK");
+        throw err;
+      } finally {
+        clientAnon.release();
+      }
+
+      // 2. Authenticated role has EXECUTE
+      const clientAuth = await pool.connect();
+      try {
+        await clientAuth.query("BEGIN");
+        await clientAuth.query("SET LOCAL ROLE authenticated");
+        await clientAuth.query("SELECT set_config('trustvault.current_user_id', $1, true)", [ownerAId]);
+        const res = await clientAuth.query("SELECT public.is_document_owner($1, $2)", [docAId, ownerAId]);
+        expect(res.rows[0].is_document_owner).toBe(true);
+        await clientAuth.query("ROLLBACK");
+      } catch (err) {
+        await clientAuth.query("ROLLBACK");
+        throw err;
+      } finally {
+        clientAuth.release();
+      }
     });
   });
 
@@ -276,6 +317,103 @@ describe("TrustVault — Row Level Security (RLS) Integration Suite", () => {
 
       // Soft-deleted document is filtered out by RLS
       expect(rows).toHaveLength(0);
+    });
+
+    it("allows document owner to complete ownership transfer and soft-delete via UPDATE", async () => {
+      // 1. Owner A creates and soft-deletes a document via UPDATE
+      const docRes = await pool.query(
+        `INSERT INTO public.documents (owner_id, title, category, storage_key, mime_type, size_bytes)
+         VALUES ($1, 'Soft Delete Test Doc', 'General', 'sd-test.pdf', 'application/pdf', 1024)
+         RETURNING id`,
+        [ownerAId]
+      );
+      const testDocId = docRes.rows[0].id;
+      tracker.trackDocument(testDocId);
+
+      await runAsRestrictedUser(ownerAId, async (client) => {
+        const res = await client.query(
+          "UPDATE public.documents SET deleted_at = now() WHERE id = $1 RETURNING id, deleted_at",
+          [testDocId]
+        );
+        expect(res.rowCount).toBe(1);
+
+        // Within query flow, soft-deleted doc is filtered out from standard queries
+        const viewRows = await client.query("SELECT id FROM public.documents WHERE id = $1", [testDocId]);
+        expect(viewRows.rows).toHaveLength(0);
+      });
+
+      // 2. Owner A transfers ownership of a document to Owner B via UPDATE
+      const xferDocRes = await pool.query(
+        `INSERT INTO public.documents (owner_id, title, category, storage_key, mime_type, size_bytes)
+         VALUES ($1, 'Transfer Test Doc', 'General', 'xfer-test.pdf', 'application/pdf', 1024)
+         RETURNING id`,
+        [ownerAId]
+      );
+      const xferDocId = xferDocRes.rows[0].id;
+      tracker.trackDocument(xferDocId);
+
+      const clientTransfer = await pool.connect();
+      try {
+        await clientTransfer.query("BEGIN");
+        await clientTransfer.query("SET LOCAL ROLE trustvault_restricted_tester");
+        await clientTransfer.query("SELECT set_config('trustvault.current_user_id', $1, true)", [ownerAId]);
+        const res = await clientTransfer.query(
+          "UPDATE public.documents SET owner_id = $1 WHERE id = $2",
+          [ownerBId, xferDocId]
+        );
+        expect(res.rowCount).toBe(1);
+        await clientTransfer.query("COMMIT");
+      } catch (e) {
+        await clientTransfer.query("ROLLBACK");
+        throw e;
+      } finally {
+        clientTransfer.release();
+      }
+
+      // Verify new owner can see it, and previous owner cannot
+      const bRows = await runAsRestrictedUser(ownerBId, async (client) => {
+        const res = await client.query("SELECT id FROM public.documents WHERE id = $1", [xferDocId]);
+        return res.rows;
+      });
+      expect(bRows).toHaveLength(1);
+
+      const aRows = await runAsRestrictedUser(ownerAId, async (client) => {
+        const res = await client.query("SELECT id FROM public.documents WHERE id = $1", [xferDocId]);
+        return res.rows;
+      });
+      expect(aRows).toHaveLength(0);
+    });
+
+    it("prevents non-service roles (authenticated and tester) from modifying storage_key, mime_type, or size_bytes via trigger", async () => {
+      for (const role of ["trustvault_restricted_tester", "authenticated"]) {
+        // Modifying storage_key throws exception
+        await expect(
+          runAsRestrictedUser(ownerAId, async (client) => {
+            await client.query("UPDATE public.documents SET storage_key = 'hacked.pdf' WHERE id = $1", [docAId]);
+          }, role)
+        ).rejects.toThrow(/immutable for non-service roles/);
+
+        // Modifying mime_type throws exception
+        await expect(
+          runAsRestrictedUser(ownerAId, async (client) => {
+            await client.query("UPDATE public.documents SET mime_type = 'application/evil' WHERE id = $1", [docAId]);
+          }, role)
+        ).rejects.toThrow(/immutable for non-service roles/);
+
+        // Modifying size_bytes throws exception
+        await expect(
+          runAsRestrictedUser(ownerAId, async (client) => {
+            await client.query("UPDATE public.documents SET size_bytes = 999999 WHERE id = $1", [docAId]);
+          }, role)
+        ).rejects.toThrow(/immutable for non-service roles/);
+
+        // Modifying permitted field (title) succeeds
+        const updateTitleCount = await runAsRestrictedUser(ownerAId, async (client) => {
+          const res = await client.query("UPDATE public.documents SET title = 'Updated Valid Title' WHERE id = $1", [docAId]);
+          return res.rowCount;
+        }, role);
+        expect(updateTitleCount).toBe(1);
+      }
     });
   });
 
@@ -441,6 +579,35 @@ describe("TrustVault — Row Level Security (RLS) Integration Suite", () => {
       const check = await pool.query("SELECT role FROM public.users WHERE id = $1", [viewerId]);
       expect(check.rows[0].role).toBe("viewer");
     });
+
+    it("prevents unauthenticated direct user insertion (account creation strictly server-side)", async () => {
+      const email = generateTestEmail("anon-create");
+      await expect(
+        runAsRestrictedUser(null, async (client) => {
+          await client.query(
+            `INSERT INTO public.users (email, password_hash, role, status)
+             VALUES ($1, 'fakehash', 'viewer', 'active')`,
+            [email]
+          );
+        })
+      ).rejects.toThrow(); // RLS WITH CHECK violation
+    });
+
+    it("allows admin to create user records via direct SQL", async () => {
+      const email = generateTestEmail("admin-create");
+      const res = await runAsRestrictedUser(adminId, async (client) => {
+        const r = await client.query(
+          `INSERT INTO public.users (email, password_hash, role, status)
+           VALUES ($1, 'fakehash', 'viewer', 'active')
+           RETURNING id`,
+          [email]
+        );
+        return r.rows[0];
+      });
+
+      expect(res.id).toBeDefined();
+      tracker.trackUser(res.id, email);
+    });
   });
 
   /* ── 5. Audit Trail Confidentiality & Tamper Resistance ────────────────── */
@@ -522,6 +689,138 @@ describe("TrustVault — Row Level Security (RLS) Integration Suite", () => {
       // Verify record still exists
       const check = await pool.query("SELECT id FROM public.audit_events WHERE id = $1", [auditEventId]);
       expect(check.rows).toHaveLength(1);
+    });
+
+    it("enforces audit event insertion rules (actor matching, document access, and unauthenticated rejection)", async () => {
+      const createdIds: string[] = [];
+      try {
+        // 1. Document owner inserting audit event for their document succeeds
+        const ownerAudit = await runAsRestrictedUser(ownerAId, async (client) => {
+          const res = await client.query(
+            `INSERT INTO public.audit_events (actor_id, document_id, action, outcome)
+             VALUES ($1, $2, 'document_read', 'success')
+             RETURNING id`,
+            [ownerAId, docAId]
+          );
+          return res.rows[0];
+        });
+        expect(ownerAudit.id).toBeDefined();
+        createdIds.push(ownerAudit.id);
+
+        // 2. Non-admin actor inserting with non-null actor_id and NULL document_id succeeds
+        const loginAuditCount = await runAsRestrictedUser(ownerAId, async (client) => {
+          const res = await client.query(
+            `INSERT INTO public.audit_events (actor_id, document_id, action, outcome)
+             VALUES ($1, NULL, 'user_login', 'success')`,
+            [ownerAId]
+          );
+          return res.rowCount;
+        });
+        expect(loginAuditCount).toBe(1);
+
+        // 3. Client inserting with NULL actor_id fails (authenticated client forbidden from inserting null actor)
+        await expect(
+          runAsRestrictedUser(ownerAId, async (client) => {
+            await client.query(
+              `INSERT INTO public.audit_events (actor_id, document_id, action, outcome)
+               VALUES (NULL, $1, 'document_read', 'success')`,
+              [docAId]
+            );
+          })
+        ).rejects.toThrow();
+
+        // 4. Admin client inserting with NULL actor_id fails (client null-actor rejection applies to admin clients too)
+        await expect(
+          runAsRestrictedUser(adminId, async (client) => {
+            await client.query(
+              `INSERT INTO public.audit_events (actor_id, document_id, action, outcome)
+               VALUES (NULL, NULL, 'admin_action', 'success')`
+            );
+          })
+        ).rejects.toThrow();
+
+        // 5. Admin client inserting with non-null actor_id succeeds
+        const adminAuditCount = await runAsRestrictedUser(adminId, async (client) => {
+          const res = await client.query(
+            `INSERT INTO public.audit_events (actor_id, document_id, action, outcome)
+             VALUES ($1, NULL, 'admin_audit_log', 'success')`,
+            [adminId]
+          );
+          return res.rowCount;
+        });
+        expect(adminAuditCount).toBe(1);
+
+        // 6. Direct insert by authenticated role succeeds when matching auth.uid()
+        const authDirectRes = await runAsRestrictedUser(ownerAId, async (client) => {
+          const res = await client.query(
+            `INSERT INTO public.audit_events (actor_id, document_id, action, outcome)
+             VALUES ($1, $2, 'authenticated_direct', 'success')
+             RETURNING id`,
+            [ownerAId, docAId]
+          );
+          return res.rows[0];
+        }, "authenticated");
+        expect(authDirectRes.id).toBeDefined();
+        createdIds.push(authDirectRes.id);
+
+        // 7. Server-only role (pool connection) can insert system writes with NULL actor_id
+        const sysRes = await pool.query(
+          `INSERT INTO public.audit_events (actor_id, document_id, action, outcome)
+           VALUES (NULL, NULL, 'system_startup_healthcheck', 'success')
+           RETURNING id`
+        );
+        expect(sysRes.rows[0].id).toBeDefined();
+        createdIds.push(sysRes.rows[0].id);
+
+        // 8. Actor inserting audit event for a document they DO NOT own or have grant for fails
+        await expect(
+          runAsRestrictedUser(ownerBId, async (client) => {
+            await client.query(
+              `INSERT INTO public.audit_events (actor_id, document_id, action, outcome)
+               VALUES ($1, $2, 'document_read', 'success')`,
+              [ownerBId, docAId]
+            );
+          })
+        ).rejects.toThrow();
+
+        // 9. Actor attempting to spoof another actor_id fails
+        await expect(
+          runAsRestrictedUser(ownerAId, async (client) => {
+            await client.query(
+              `INSERT INTO public.audit_events (actor_id, document_id, action, outcome)
+               VALUES ($1, $2, 'document_read', 'success')`,
+              [ownerBId, docAId]
+            );
+          })
+        ).rejects.toThrow();
+
+        // 10. Unauthenticated actor (null user) inserting audit event fails
+        await expect(
+          runAsRestrictedUser(null, async (client) => {
+            await client.query(
+              `INSERT INTO public.audit_events (actor_id, document_id, action, outcome)
+               VALUES (NULL, NULL, 'anon_action', 'success')`
+            );
+          })
+        ).rejects.toThrow();
+
+        // 11. Direct insert as anon role is rejected (table-level / RLS denial)
+        await expect(
+          runAsRestrictedUser(null, async (client) => {
+            await client.query(
+              `INSERT INTO public.audit_events (actor_id, document_id, action, outcome)
+               VALUES (NULL, NULL, 'anon_action', 'success')`
+            );
+          }, "anon")
+        ).rejects.toThrow();
+      } finally {
+        if (createdIds.length > 0) {
+          await pool.query(
+            "DELETE FROM public.audit_events WHERE id = ANY($1::bigint[])",
+            [createdIds]
+          );
+        }
+      }
     });
   });
 });

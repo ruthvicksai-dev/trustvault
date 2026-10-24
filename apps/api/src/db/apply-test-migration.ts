@@ -14,11 +14,17 @@ if (!existsSync(testEnvPath)) {
 }
 
 const testEnvContent = readFileSync(testEnvPath, "utf-8");
-const testUrl = testEnvContent
+const testEnvLine = testEnvContent
   .split(/\r?\n/)
-  .find((l) => l.startsWith("TEST_DATABASE_URL="))
-  ?.split("=")[1]
-  ?.trim();
+  .find((l) => l.startsWith("TEST_DATABASE_URL="));
+
+const testUrl = testEnvLine
+  ? testEnvLine
+      .slice(testEnvLine.indexOf("=") + 1)
+      .trim()
+      .replace(/^(['"])(.*)\1$/, "$2")
+      .trim()
+  : undefined;
 
 // Enforce repository fail-closed security guard
 assertTestDatabase(testUrl);

@@ -31,6 +31,10 @@ BEGIN
   END IF;
 END $$;
 
+-- Ensure auth schema and functions are accessible for policy evaluation
+GRANT USAGE ON SCHEMA auth TO PUBLIC;
+GRANT EXECUTE ON FUNCTION auth.uid() TO PUBLIC;
+
 -- -----------------------------------------------------------------------------
 -- 2. Helper security functions in public schema (SECURITY DEFINER to avoid recursion)
 -- -----------------------------------------------------------------------------
@@ -113,6 +117,48 @@ AS $$
   );
 $$;
 
+-- Restrict EXECUTE on SECURITY DEFINER helpers (Review Finding 3)
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+    CREATE ROLE anon WITH LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+    CREATE ROLE authenticated WITH LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB;
+  END IF;
+END $$;
+
+REVOKE EXECUTE ON FUNCTION public.is_document_owner(uuid, uuid) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.document_owner(uuid) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.has_document_grant(uuid, uuid) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.has_document_edit_grant(uuid, uuid) FROM PUBLIC;
+
+REVOKE EXECUTE ON FUNCTION public.is_document_owner(uuid, uuid) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.document_owner(uuid) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.has_document_grant(uuid, uuid) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.has_document_edit_grant(uuid, uuid) FROM anon;
+
+GRANT EXECUTE ON FUNCTION public.is_document_owner(uuid, uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.document_owner(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.has_document_grant(uuid, uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.has_document_edit_grant(uuid, uuid) TO authenticated;
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
+    GRANT EXECUTE ON FUNCTION public.is_document_owner(uuid, uuid) TO service_role;
+    GRANT EXECUTE ON FUNCTION public.document_owner(uuid) TO service_role;
+    GRANT EXECUTE ON FUNCTION public.has_document_grant(uuid, uuid) TO service_role;
+    GRANT EXECUTE ON FUNCTION public.has_document_edit_grant(uuid, uuid) TO service_role;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'trustvault_restricted_tester') THEN
+    GRANT EXECUTE ON FUNCTION public.is_document_owner(uuid, uuid) TO trustvault_restricted_tester;
+    GRANT EXECUTE ON FUNCTION public.document_owner(uuid) TO trustvault_restricted_tester;
+    GRANT EXECUTE ON FUNCTION public.has_document_grant(uuid, uuid) TO trustvault_restricted_tester;
+    GRANT EXECUTE ON FUNCTION public.has_document_edit_grant(uuid, uuid) TO trustvault_restricted_tester;
+  END IF;
+END $$;
+
 -- -----------------------------------------------------------------------------
 -- 3. Enable RLS on all sensitive tables
 -- -----------------------------------------------------------------------------
@@ -145,7 +191,7 @@ DROP POLICY IF EXISTS users_insert_policy ON public.users;
 CREATE POLICY users_insert_policy ON public.users
   FOR INSERT TO public
   WITH CHECK (
-    public.is_admin() OR (role = 'viewer' AND status = 'active')
+    public.is_admin()
   );
 
 DROP POLICY IF EXISTS users_update_policy ON public.users;
@@ -170,14 +216,51 @@ CREATE POLICY users_delete_policy ON public.users
 -- -----------------------------------------------------------------------------
 -- 5. Policies for public.documents
 -- -----------------------------------------------------------------------------
+-- Enforce immutability of storage metadata for non-service roles (Review Finding 4)
+CREATE OR REPLACE FUNCTION public.check_documents_immutable_columns()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+BEGIN
+  IF (NEW.storage_key IS DISTINCT FROM OLD.storage_key) OR
+     (NEW.mime_type IS DISTINCT FROM OLD.mime_type) OR
+     (NEW.size_bytes IS DISTINCT FROM OLD.size_bytes) THEN
+
+    -- Service-role / superuser / bypassrls bypass
+    IF CURRENT_USER IN ('postgres', 'service_role', 'supabase_admin')
+       OR (NULLIF(current_setting('request.jwt.claim.role', true), '') = 'service_role')
+       OR (SELECT rolbypassrls FROM pg_roles WHERE rolname = CURRENT_USER) THEN
+      RETURN NEW;
+    END IF;
+
+    RAISE EXCEPTION 'Cannot modify storage_key, mime_type, or size_bytes: immutable for non-service roles'
+      USING ERRCODE = '42501';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_documents_immutable_columns ON public.documents;
+CREATE TRIGGER trg_documents_immutable_columns
+  BEFORE UPDATE ON public.documents
+  FOR EACH ROW
+  EXECUTE FUNCTION public.check_documents_immutable_columns();
+
 DROP POLICY IF EXISTS documents_select_policy ON public.documents;
 CREATE POLICY documents_select_policy ON public.documents
   FOR SELECT TO public
   USING (
-    deleted_at IS NULL AND (
-      owner_id = auth.uid()
-      OR public.has_document_grant(documents.id, auth.uid())
+    (
+      deleted_at IS NULL AND (
+        owner_id = auth.uid()
+        OR public.has_document_grant(documents.id, auth.uid())
+      )
     )
+    OR
+    -- Allow document owner to complete update path (soft-deletes and ownership transfers)
+    public.is_document_owner(documents.id, auth.uid())
   );
 
 DROP POLICY IF EXISTS documents_insert_policy ON public.documents;
@@ -284,7 +367,31 @@ DROP POLICY IF EXISTS audit_events_insert_policy ON public.audit_events;
 CREATE POLICY audit_events_insert_policy ON public.audit_events
   FOR INSERT TO public
   WITH CHECK (
-    actor_id IS NULL OR actor_id = auth.uid() OR public.is_admin()
+    -- System writes: Server-only roles or service identity can insert system events (including null actor_id)
+    (
+      CURRENT_USER IN ('postgres', 'service_role', 'supabase_admin')
+      OR NULLIF(current_setting('request.jwt.claim.role', true), '') = 'service_role'
+    )
+    OR
+    -- Client inserts: strictly require non-null actor_id and authorization (admin or authenticated actor matching auth.uid())
+    (
+      actor_id IS NOT NULL
+      AND (
+        -- Admin client inserts
+        public.is_admin()
+        OR
+        -- Authenticated client inserting their own event with valid document access
+        (
+          auth.uid() IS NOT NULL
+          AND actor_id = auth.uid()
+          AND (
+            document_id IS NULL
+            OR public.is_document_owner(document_id, auth.uid())
+            OR public.has_document_grant(document_id, auth.uid())
+          )
+        )
+      )
+    )
   );
 
 -- Zero UPDATE or DELETE policies for audit_events to guarantee append-only integrity.
@@ -298,6 +405,7 @@ BEGIN
   -- Defense-in-depth: Revoke direct table privileges on sessions from public/anon/authenticated
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
     REVOKE ALL ON public.sessions FROM anon;
+    REVOKE INSERT ON public.audit_events FROM anon;
   END IF;
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
     REVOKE ALL ON public.sessions FROM authenticated;
