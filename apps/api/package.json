@@ -39,6 +39,7 @@
     "test:unit": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",
     "typecheck": "tsc --noEmit",
-    "db:check": "tsx src/db/check-connection.ts"
+    "db:check": "tsx src/db/check-connection.ts",
+    "db:migrate:test": "tsx src/db/apply-test-migration.ts"
   }
 }

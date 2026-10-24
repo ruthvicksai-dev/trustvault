@@ -5,6 +5,7 @@ export default defineConfig({
     include: ["tests/**/*.test.ts"],
     environment: "node",
     testTimeout: 25000,
+    fileParallelism: false,
     globalSetup: ["./tests/global-teardown.ts"],
   },
 });
