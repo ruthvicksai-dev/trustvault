@@ -38,10 +38,10 @@ describe("TrustVault — Row Level Security (RLS) Integration Suite", () => {
           CREATE ROLE trustvault_restricted_tester WITH LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB;
         END IF;
         IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
-          CREATE ROLE anon WITH LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB;
+          CREATE ROLE anon WITH NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB;
         END IF;
         IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
-          CREATE ROLE authenticated WITH LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB;
+          CREATE ROLE authenticated WITH NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB;
         END IF;
       END $$;
       GRANT USAGE ON SCHEMA public TO trustvault_restricted_tester, anon, authenticated;
@@ -705,7 +705,6 @@ describe("TrustVault — Row Level Security (RLS) Integration Suite", () => {
           return res.rows[0];
         });
         expect(ownerAudit.id).toBeDefined();
-        createdIds.push(ownerAudit.id);
 
         // 2. Non-admin actor inserting with non-null actor_id and NULL document_id succeeds
         const loginAuditCount = await runAsRestrictedUser(ownerAId, async (client) => {
@@ -761,7 +760,6 @@ describe("TrustVault — Row Level Security (RLS) Integration Suite", () => {
           return res.rows[0];
         }, "authenticated");
         expect(authDirectRes.id).toBeDefined();
-        createdIds.push(authDirectRes.id);
 
         // 7. Server-only role (pool connection) can insert system writes with NULL actor_id
         const sysRes = await pool.query(
