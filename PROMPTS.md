@@ -430,6 +430,34 @@ Inspect the repository and implement a reliable GitHub Actions CI pipeline (`.gi
 
 ---
 
+## Phase 12 — Production Cloud Deployment (Vercel & Render) and Documentation Synchronization
+
+**Date:** 2026-10-25
+
+**Context & Prompt / AI assistance requested:**
+The user deployed both the frontend Single Page Application to **Vercel** (`https://trustvault-omega.vercel.app`) and the containerized backend API to **Render** (`https://trustvault-api-l22c.onrender.com`), confirmed that the live system is working well, and requested an update across all affected documentation.
+
+**AI contribution & Architectural Actions:**
+1. **Live Production Service Verification:**
+   - Probed the live backend API service hosted on Render (`https://trustvault-api-l22c.onrender.com/health`), verifying that the Alpine container started cleanly and returns HTTP 200 with service metadata and security headers (`Strict-Transport-Security`, `Content-Security-Policy`, `X-Content-Type-Options`).
+   - Probed `/api/auth/csrf-token` directly on the Render API, confirming session generation, CSRF synchronizer token delivery, and RFC 6265bis hardened cookie issuance (`__Host-trustvault.sid` with `Path=/`, `HttpOnly`, `Secure`, `SameSite=Lax`).
+   - Probed `https://trustvault-omega.vercel.app/api/auth/csrf-token` through the Vercel edge reverse proxy, confirming end-to-end transparent proxying with `Server: Vercel`, `X-Render-Origin-Server: Render`, valid CSRF token, and secure session cookie attachment.
+2. **Vercel Edge Proxy Architecture Alignment:**
+   - Analyzed the [`apps/web/vercel.json`](file:///c:/Users/ruthv/Projects/trustvault/apps/web/vercel.json) reverse-proxy rewrite rules (`/api/:path*` -> `https://trustvault-api-l22c.onrender.com/api/:path*`), documenting how this eliminates third-party cookie restrictions across modern browsers, provides first-party cookie scope on the frontend domain, and avoids CORS preflight network latency.
+3. **Documentation Synchronization Across Monorepo:**
+   - **[`docs/DEPLOYMENT.md`](file:///c:/Users/ruthv/Projects/trustvault/docs/DEPLOYMENT.md):** Updated production architecture overview, Render service details, Vercel edge rewrite documentation, production environment variables (`FRONTEND_ORIGIN=https://trustvault-omega.vercel.app`), and live verification probe outputs.
+   - **[`docs/CHALLENGE_COMPLIANCE_AUDIT.md`](file:///c:/Users/ruthv/Projects/trustvault/docs/CHALLENGE_COMPLIANCE_AUDIT.md):** Promoted Requirement 25 ("Working Deployed Website") from `UNVERIFIED` to `PASS`; updated the overall verdict from `CONDITIONAL PASS` to `FULL PASS — PRODUCTION DEPLOYMENT & LIVE VERIFICATION COMPLETE`; checked off all pre-deployment smoke-test items; and marked Tier 1 submission blockers as fully completed.
+   - **[`README.md`](file:///c:/Users/ruthv/Projects/trustvault/README.md):** Updated Section 7 (Live Evaluation Deployment Access) and Section 9 (Deployment Overview) with live URLs (`https://trustvault-omega.vercel.app`), evaluator login guidelines, and hosting architecture.
+   - **[`docs/ARCHITECTURE.md`](file:///c:/Users/ruthv/Projects/trustvault/docs/ARCHITECTURE.md):** Updated document status to deployed in production, and refined the Mermaid system architecture diagram to reflect Vercel edge proxying (`https://trustvault-omega.vercel.app`) to the Render container.
+
+**Verification:**
+- Live health probe (`curl -i https://trustvault-api-l22c.onrender.com/health`): HTTP 200 OK `{"status":"ok","service":"trustvault-api"}`.
+- Live CSRF token probe via Render (`curl -i https://trustvault-api-l22c.onrender.com/api/auth/csrf-token`): HTTP 200 OK with `__Host-trustvault.sid` cookie and CSRF token.
+- Live Vercel edge proxy probe (`curl -i https://trustvault-omega.vercel.app/api/auth/csrf-token`): HTTP 200 OK with `Server: Vercel`, `X-Render-Origin-Server: Render`, `__Host-trustvault.sid` cookie, and CSRF token.
+- Documentation link integrity and consistency verified across monorepo markdown files.
+
+---
+
 ## Documentation Rules
 
 - Record genuine AI prompts, contributions, and corrections.

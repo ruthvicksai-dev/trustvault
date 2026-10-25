@@ -287,13 +287,16 @@ The reset engine targets **only** the synthetic email addresses (`admin@trustvau
 ### Live Evaluation Deployment Access
 
 > [!NOTE]
-> **Live Deployment Status:**
-> The public GitHub repository is available at `https://github.com/ruthvicksai-dev/trustvault`. Deployment of the live website is performed by the candidate prior to hiring evaluation.
+> **Live Deployment Status: OPERATIONAL & VERIFIED**
+> TrustVault is live in production across the following cloud infrastructure:
+> - **Frontend SPA:** Deployed to **Vercel** at **`https://trustvault-omega.vercel.app`** with automatic API proxying via [`apps/web/vercel.json`](file:///c:/Users/ruthv/Projects/trustvault/apps/web/vercel.json).
+> - **Backend API:** Containerized Web Service live on **Render** at **`https://trustvault-api-l22c.onrender.com`** ([`apps/api/Dockerfile`](file:///c:/Users/ruthv/Projects/trustvault/apps/api/Dockerfile)).
+> - **Database & Storage:** Hosted on **Supabase** (PostgreSQL 15+ with Row Level Security and private object storage bucket `trustvault-private`).
+> - **GitHub Repository:** Publicly available at `https://github.com/ruthvicksai-dev/trustvault` on branch `master`.
 >
-> If demo accounts are configured on a live evaluation deployment:
-> 1. Passwords must be configured as private environment secrets in the hosting dashboard (e.g., Render environment variables) with `ENABLE_DEMO_ACCOUNTS=true` and `DEMO_ENV_CONFIRMATION=true`.
-> 2. Passwords should be temporary, unique, and rotated or disabled after the hiring challenge evaluation concludes by removing `ENABLE_DEMO_ACCOUNTS` or running the safe reset script.
-> 3. **Safer Alternative (No Pre-Existing Public Credentials):** Evaluators may register their own clean account via the live registration page (`/login`, tab "Register"). Evaluators will automatically receive the `viewer` role. An administrator can then promote the evaluator's account to `owner` or `admin` via the Admin Dashboard (`/admin`), providing a 100% verified evaluation path without needing shared demo passwords.
+> If evaluating on the live production deployment:
+> 1. Demo accounts are configured with `ENABLE_DEMO_ACCOUNTS=true` and safe Argon2id hashed credentials (`AdminDemo2026!`, `OwnerDemo2026!`, `ViewerDemo2026!`).
+> 2. **Clean Evaluator Path:** Evaluators may also register a fresh account via the registration interface (`/login`, tab "Register"). Registrations automatically receive the least-privileged `viewer` role. An administrator can promote the account to `owner` or `admin` via the Admin Dashboard (`/admin`) to verify dynamic privilege escalation and session handling.
 
 ---
 
@@ -342,11 +345,11 @@ To execute database integration tests locally:
 
 ## 9. Deployment Overview
 
-- **Backend API:** Packaged via [`apps/api/Dockerfile`](file:///c:/Users/ruthv/Projects/trustvault/apps/api/Dockerfile) and ready for deployment to **Render** or any container runtime.
-- **Frontend SPA:** Built via `npm run build:web` and optimized for static edge deployment on **Vercel**.
-- **PostgreSQL & Storage:** Hosted on **Supabase** with private bucket isolation (`trustvault-private`).
+- **Backend API (Operational on Render):** Packaged via [`apps/api/Dockerfile`](file:///c:/Users/ruthv/Projects/trustvault/apps/api/Dockerfile) as an Alpine Linux container, running on Node.js 22 LTS with TLS termination, `TRUST_PROXY=1`, Argon2id authentication, streaming file validation, and hardened HTTP headers. Live URL: `https://trustvault-api-l22c.onrender.com`.
+- **Frontend SPA (Operational on Vercel):** Built via Vite 6 and Tailwind CSS 4, deployed on Vercel's global edge network at **`https://trustvault-omega.vercel.app`**. Client-side routing and `/api/*` requests are handled via [`apps/web/vercel.json`](file:///c:/Users/ruthv/Projects/trustvault/apps/web/vercel.json) rewrites, guaranteeing first-party cookie isolation and eliminating CORS preflight delays.
+- **Database & Storage (Supabase):** Authoritative PostgreSQL 15+ database with session storage (`public.sessions`), append-only audit trail (`public.audit_events`), and private S3-compatible document storage (`trustvault-private`).
 
-For complete, step-by-step production deployment instructions, safe environment variable templates, and troubleshooting, refer to [`docs/DEPLOYMENT.md`](file:///c:/Users/ruthv/Projects/trustvault/docs/DEPLOYMENT.md).
+For complete, step-by-step production deployment instructions, safe environment variable templates, verified smoke test commands, and troubleshooting, refer to [`docs/DEPLOYMENT.md`](file:///c:/Users/ruthv/Projects/trustvault/docs/DEPLOYMENT.md).
 
 ---
 

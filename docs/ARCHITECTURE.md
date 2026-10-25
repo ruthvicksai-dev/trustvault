@@ -2,7 +2,7 @@
 
 **Document Version:** 1.0.0  
 **Target Environment:** Node.js 22+ (Express 5 backend), React 19 (Vite SPA), PostgreSQL 15+ (Supabase)  
-**Status:** Implemented & Verified in Local Test Environment
+**Status:** Implemented, Verified in Local Test Suite & Deployed to Production (Vercel SPA + Render Docker + Supabase)
 
 ---
 
@@ -13,18 +13,19 @@ TrustVault is a secure, multi-tenant document-sharing platform engineered around
 ```mermaid
 flowchart TD
     subgraph Client Tier
-        Browser["React 19 SPA (Vite)\nOrigin: FRONTEND_ORIGIN"]
+        Browser["React 19 SPA (Vite on Vercel: https://trustvault-omega.vercel.app)\nOrigin: FRONTEND_ORIGIN"]
         ExternalClient["Direct Client / API Consumer\n(PostgREST / Untrusted)"]
     end
 
     subgraph Perimeter & Transport Security
-        HTTPS["TLS 1.3 Termination / Reverse Proxy"]
+        VercelEdge["Vercel Edge CDN & Proxy Rewrite\n(apps/web/vercel.json -> Render API)"]
+        RenderEdge["Render TLS 1.3 Edge Termination\n(https://trustvault-api-l22c.onrender.com)"]
         CorsHelmet["CORS Allowlist & Helmet Security Headers"]
         OriginGuard["Origin / Referer CSRF Validation"]
         RateLimiter["IP-Based & Concurrency Rate Limiters"]
     end
 
-    subgraph Application Tier [Express 5 Backend API]
+    subgraph Application Tier [Express 5 Backend API on Render]
         SessionAuth["Session Guard (requireAuth)\nArgon2id + connect-pg-simple"]
         CSRFMiddleware["Synchronizer Token Guard (requireCsrfToken)"]
         CentralAuth["Centralized Document Authorization Engine\n(authorizeDocumentAccess)"]
@@ -32,27 +33,27 @@ flowchart TD
         StorageManager["Storage Driver Interface\n(SupabaseStorageDriver / InMemory)"]
     end
 
-    subgraph Data Tier [PostgreSQL 15+]
+    subgraph Data Tier [Supabase PostgreSQL 15+]
         AppRole["Role: postgres (BYPASSRLS = true)\nMediated exclusively by Express"]
         RestrictedRole["Roles: anon / authenticated (BYPASSRLS = false)\nSubject to Row Level Security"]
         RLS["PostgreSQL RLS & FORCE Policies"]
         Tables[("public.users\npublic.documents\npublic.document_grants\npublic.audit_events\npublic.sessions")]
     end
 
-    subgraph Storage Tier [Private Object Storage]
+    subgraph Storage Tier [Supabase Private Storage]
         PrivateBucket["Supabase Storage Bucket: trustvault-private\n(public: false, UUIDv4 Object Keys)"]
     end
 
-    Browser -->|HTTPS + Credentials| HTTPS
-    ExternalClient -.->|Direct PostgREST API| HTTPS
-    HTTPS --> CorsHelmet --> OriginGuard --> RateLimiter
+    Browser -->|Relative /api/* or direct HTTPS| VercelEdge
+    VercelEdge -->|Edge Proxy Rewrite| RenderEdge
+    RenderEdge --> CorsHelmet --> OriginGuard --> RateLimiter
+    ExternalClient -.->|Direct PostgREST API| RestrictedRole
     RateLimiter --> SessionAuth --> CSRFMiddleware --> CentralAuth
 
     CentralAuth -->|Parameterized SQL| AppRole
     AuditService -->|Append-Only Inserts| AppRole
     AppRole --> Tables
 
-    ExternalClient -.->|Direct Data API| RestrictedRole
     RestrictedRole -->|Filtered by Policies| RLS
     RLS --> Tables
 
